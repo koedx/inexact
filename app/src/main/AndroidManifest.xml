@@ -54,7 +54,8 @@
              stub only logs and finishes; the real provisioning logic is added later. -->
         <activity
             android:name=".gate.ProvisionActivity"
-            android:exported="false" />
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
 
     </application>
 </manifest>
