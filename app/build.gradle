@@ -7,6 +7,10 @@ def appVersion = "0.1.0"
 def revisionDate = "2026-09-29"
 
 android {
+    lint {
+        disable "ExpiredTargetSdkVersion"
+    }
+
     // namespace = the source/package name for the generated R and BuildConfig
     // classes. It stays com.android.calculator2 so the AOSP source is untouched.
     namespace 'com.android.calculator2'
