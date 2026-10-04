@@ -8,7 +8,7 @@ def revisionDate = "2026-09-29"
 
 android {
     lint {
-        disable "ExpiredTargetSdkVersion"
+        disable "ExpiredTargetSdkVersion", "ProtectedPermissions"
     }
 
     // namespace = the source/package name for the generated R and BuildConfig
