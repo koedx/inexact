@@ -1915,6 +1915,14 @@ public class Evaluator implements CalculatorExpr.ExprResolver {
         return getExprAsSpannable(index).toString();
     }
 
+    /**
+     * Gate helper (InExact): raw whole-number digits of the MAIN expression if it is exactly
+     * one whole-number constant, else null. UI thread only.
+     */
+    public String getMainWholeDigitsOrNull() {
+        return mMainExpr.mExpr.soleWholeDigitsOrNull();
+    }
+
     public Spannable getExprAsSpannable(long index) {
         return getExpr(index).toSpannableStringBuilder(mContext);
     }

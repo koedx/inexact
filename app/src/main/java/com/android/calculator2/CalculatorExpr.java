@@ -449,6 +449,20 @@ class CalculatorExpr {
     }
 
     /**
+     * Gate helper (InExact): if the expression is exactly one whole-number constant
+     * (no decimal point, no exponent), return its raw digit string with no grouping
+     * separators; otherwise null. Read-only; UI thread.
+     */
+    String soleWholeDigitsOrNull() {
+        if (mExpr.size() != 1) return null;
+        Token t = mExpr.get(0);
+        if (!(t instanceof Constant)) return null;
+        Constant c = (Constant) t;
+        if (c.mSawDecimal || c.mExponent != 0 || c.mWhole.isEmpty()) return null;
+        return c.mWhole;
+    }
+
+    /**
      * Does this expression end with a binary operator?
      */
     boolean hasTrailingBinary() {

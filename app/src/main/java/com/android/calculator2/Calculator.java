@@ -247,6 +247,35 @@ public class Calculator extends Activity
     private CalculatorState mCurrentState;
     private Evaluator mEvaluator;
 
+    // --- InExact gate (step 1) ---
+    private com.android.calculator2.gate.GateController mGate;  // null unless armed (spec §4)
+
+    private final com.android.calculator2.gate.GateHost mGateHost =
+            new com.android.calculator2.gate.GateHost() {
+        @Override public android.content.Context context() { return Calculator.this; }
+        @Override public Evaluator evaluator() { return mEvaluator; }
+        @Override public void clearDisplayQuietly() {
+            mEvaluator.clearMain();                 // no history write (confirmed)
+            setState(CalculatorState.INPUT);
+            redisplayFormula();
+            mResultText.clear();
+        }
+        @Override public void openGate() {
+            clearDisplayQuietly();                  // "clear the display when the hidden view opens"
+            // STEP-6 SEAM: launch the hidden view here.
+            // STEP-1 TEST SIGNAL ONLY — remove in the step-3 leak-path review:
+            android.util.Log.d(TAG, "InExact gate opened");
+        }
+        @Override public void showRecordingText(CharSequence text) {
+            mResultText.setText(text == null ? "" : text);   // §6 echo — unverified vs CalculatorResult
+        }
+        @Override public void setRecordingIndicator(boolean on) {
+            if (mEqualButton instanceof TextView) {
+                ((TextView) mEqualButton).setText(on ? "\u2022" : getString(R.string.eq));
+            }
+        }
+    };
+
     private CalculatorDisplay mDisplayView;
     private TextView mModeView;
     private CalculatorFormula mFormulaText;
@@ -426,6 +455,12 @@ public class Calculator extends Activity
         mFormulaText.addTextChangedListener(mFormulaTextWatcher);
         mDeleteButton.setOnLongClickListener(this);
 
+        // --- InExact gate (step 1). Active only when the app is armed (spec §4). ---
+        if (com.android.calculator2.gate.GateController.isArmed(this)) {
+            mGate = new com.android.calculator2.gate.GateController(mGateHost);
+            mEqualButton.setOnLongClickListener(this);   // long-press '=' drives §6 recording
+        }
+
         if (savedInstanceState != null) {
             restoreInstanceState(savedInstanceState);
         } else {
@@ -451,6 +486,14 @@ public class Calculator extends Activity
         mMainCalculator.setImportantForAccessibility(
                 mDragLayout.isOpen() ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                         : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (mGate != null) {
+            mGate.onActivityStopped();   // drop any half-entered match / recording
+        }
     }
 
     @Override
@@ -827,6 +870,9 @@ public class Calculator extends Activity
         cancelUnrequested();
 
         final int id = view.getId();
+        if (mGate != null && mGate.onButtonClick(id)) {
+            return;   // gate consumed this press (recording capture); skip normal handling
+        }
         switch (id) {
             case R.id.eq:
                 onEquals();
@@ -897,6 +943,9 @@ public class Calculator extends Activity
     public boolean onLongClick(View view) {
         mCurrentButton = view;
 
+        if (mGate != null && view.getId() == R.id.eq) {
+            return mGate.onEqualsLongPress();
+        }
         if (view.getId() == R.id.del) {
             onClear();
             return true;
