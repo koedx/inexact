@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- InExact gate colors. Separate file so it merges with the stock colors without overwriting. -->
+<resources>
+    <!-- Advanced-pad background while the app is in PIN-setup mode. A dark warm red, chosen to be
+         clearly distinct from the stock mint pad (#1DE9B6) and the math-error magenta (#C2185B). -->
+    <color name="gate_pin_mode_background_color">#8B1A1A</color>
+</resources>

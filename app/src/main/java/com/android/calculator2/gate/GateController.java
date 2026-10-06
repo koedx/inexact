@@ -14,20 +14,28 @@ import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
 
+import com.android.calculator2.R;
+
 /**
  * Owns the gate for one Activity instance. Created only when the app is armed
  * (WRITE_SECURE_SETTINGS granted) — otherwise the Activity never instantiates it and the gate code
  * path does not exist (spec section 4).
  *
- * Routes raw key presses to the section-6 recorder or the section-5 matcher, and resets transient
- * state when the Activity stops.
+ * Routes raw key presses to the section-6 recorder or the section-5 matcher, drives the PIN-setup
+ * appearance (solution 3: the whole-app PIN look is on from the moment the Activity is shown while
+ * setup is allowed, and turns off when recording ends), and resets transient state on stop.
  */
-public final class GateController {
+public final class GateController implements PinRecorder.Listener {
 
     private final GateHost mHost;
     private final GateCredential mCredential;
     private final PinMatcher mMatcher;
     private final PinRecorder mRecorder;
+
+    // PIN-setup appearance state (solution 3).
+    private boolean mSetupActive;     // PIN-mode visuals currently shown
+    private boolean mSetupPrompted;   // first instruction popup already shown this session
+    private boolean mSetupEnded;      // recording finished (save/error): do not re-arm this session
 
     /**
      * True iff the app is armed. The host checks this before constructing the controller, so the
@@ -43,7 +51,29 @@ public final class GateController {
         // STEP-1 STUB credential (session RAM). Replaced by PBKDF2 + Keystore storage in step 2.
         mCredential = new InMemoryGateCredential();
         mMatcher = new PinMatcher(host, mCredential);
-        mRecorder = new PinRecorder(host, mCredential);
+        mRecorder = new PinRecorder(host, mCredential, this);
+    }
+
+    /**
+     * Called from onResume. While setup is allowed, turns on the PIN-mode appearance (once) and
+     * shows the first instruction popup (once). No-op after setup has ended or once configured.
+     *
+     * NOTE: until step 2 ties isSetupAllowed() to the arming marker, this shows the PIN-setup UI on
+     * any unconfigured armed install. Keep dev builds off field tablets until that gate is wired.
+     */
+    public void onActivityResumed() {
+        if (mSetupEnded || !isSetupAllowed()) {
+            return;
+        }
+        if (!mSetupActive) {
+            mSetupActive = true;
+            mHost.setPinModeVisuals(true);
+        }
+        if (!mSetupPrompted) {
+            mSetupPrompted = true;
+            mHost.showGateDialog(R.string.gate_prompt_title, R.string.gate_prompt_digits,
+                    R.string.gate_got_it);
+        }
     }
 
     /**
@@ -73,6 +103,14 @@ public final class GateController {
     public void onActivityStopped() {
         mMatcher.reset();
         mRecorder.cancel();
+    }
+
+    /** PinRecorder.Listener: a PIN was saved. End setup and restore the normal look. */
+    @Override
+    public void onRecordingSaved() {
+        mSetupEnded = true;
+        mSetupActive = false;
+        mHost.setPinModeVisuals(false);
     }
 
     /**

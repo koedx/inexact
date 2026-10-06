@@ -24,16 +24,23 @@ import java.util.Arrays;
  * One pass is: [type digits] -> long-press '=' -> [press operators] -> long-press '='. The pass is
  * performed twice and the two must match, then the credential is saved.
  *
- * Symmetry with the matcher: digits always come from the raw main-expression accessor (read at the
- * long-press that closes the digit phase); operators are consumed raw presses (so they neither
- * append nor collapse) and echoed as glyphs to the result field.
+ * PIN-mode appearance (red advanced pad, "PIN" label) is owned by GateController and is already on
+ * when recording begins. An armed app must not be left without a PIN, so an error is NOT terminal:
+ * it shows specific guidance (dismissed with "Try again"), resets the attempt, and stays in PIN
+ * mode. Only a successful save ends setup (via the listener, which restores the normal look).
  */
 final class PinRecorder {
+
+    /** Notified only when a credential is successfully saved. */
+    interface Listener {
+        void onRecordingSaved();
+    }
 
     private enum Phase { IDLE, P1_OPS, P2_WAIT_DIGITS, P2_OPS }
 
     private final GateHost mHost;
     private final GateCredential mCredential;
+    private final Listener mListener;
 
     private Phase mPhase = Phase.IDLE;
     private String mDigits1;
@@ -41,9 +48,10 @@ final class PinRecorder {
     private String mDigits2;
     private final ArrayList<Integer> mOps2 = new ArrayList<>();
 
-    PinRecorder(GateHost host, GateCredential credential) {
+    PinRecorder(GateHost host, GateCredential credential, Listener listener) {
         mHost = host;
         mCredential = credential;
+        mListener = listener;
     }
 
     boolean isRecording() {
@@ -55,9 +63,9 @@ final class PinRecorder {
      * reach the normal calculator path. Called only when isRecording() is true.
      */
     boolean onButtonClick(int id) {
-        // Clear or delete cancels recording at any point.
+        // Clear or delete cancels recording at any point (interruption, not an error).
         if (id == R.id.clr || id == R.id.del) {
-            finish();
+            cancel();
             return true;
         }
 
@@ -73,8 +81,7 @@ final class PinRecorder {
                 if (id == R.id.eq) {
                     return true;   // swallow a short '=' during operator capture
                 }
-                // Any other key during operator capture: abort (keeps the protocol strict).
-                finish();
+                error(R.string.gate_err_ops_only);   // a non-operator key in the sequence
                 return true;
             }
             case P2_WAIT_DIGITS: {
@@ -85,8 +92,7 @@ final class PinRecorder {
                 if (id == R.id.eq) {
                     return true;   // swallow a short '='; the long-press advances the phase
                 }
-                // An operator (or anything else) before the long-press is out of protocol: abort.
-                finish();
+                error(R.string.gate_err_ops_only);   // an operator before re-typing the digits
                 return true;
             }
             default:
@@ -103,49 +109,56 @@ final class PinRecorder {
             case IDLE: {
                 final String digits = mHost.evaluator().getMainWholeDigitsOrNull();
                 if (digits == null) {
-                    badExpression();                 // display is not a whole-number
+                    error(R.string.gate_err_digits);     // display is not a whole number
                     return true;
                 }
                 mDigits1 = digits;
                 mOps1.clear();
-                mPhase = Phase.P1_OPS;
-                mHost.setRecordingIndicator(true);
-                mHost.showRecordingText("");         // clear any stale result text
+                mPhase = Phase.P1_OPS;                    // retain the digits: no clear here (spec §6)
+                mHost.showRecordingText("");             // clear any stale result text
+                mHost.showGateDialog(R.string.gate_prompt_title, R.string.gate_prompt_ops,
+                        R.string.gate_got_it);
                 return true;
             }
             case P1_OPS: {
-                if (mOps1.isEmpty()) {               // require at least one operator
-                    badExpression();
+                if (mOps1.isEmpty()) {
+                    error(R.string.gate_err_no_ops);     // no operators entered
                     return true;
                 }
                 mPhase = Phase.P2_WAIT_DIGITS;
-                mHost.clearDisplayQuietly();          // so the user re-types the pass-2 digits
-                mHost.setRecordingIndicator(true);    // clearDisplayQuietly may reset the label
-                mHost.showRecordingText("Repeat");
+                // Blue reveal-clear, then prompt the repeat by re-typing the digits.
+                mHost.revealClear(new Runnable() {
+                    @Override public void run() { mHost.showRecordingText("Repeat"); }
+                });
                 return true;
             }
             case P2_WAIT_DIGITS: {
                 final String digits = mHost.evaluator().getMainWholeDigitsOrNull();
                 if (digits == null) {
-                    badExpression();
+                    error(R.string.gate_err_digits);
                     return true;
                 }
                 mDigits2 = digits;
                 mOps2.clear();
-                mPhase = Phase.P2_OPS;
+                mPhase = Phase.P2_OPS;                    // retain the digits: no clear here
                 return true;
             }
             case P2_OPS: {
                 final boolean ok = !mOps2.isEmpty()
                         && mDigits1.equals(mDigits2)
                         && Arrays.equals(toIntArray(mOps1), toIntArray(mOps2));
-                if (ok) {
-                    mCredential.save(mDigits1, toIntArray(mOps1));
-                    mHost.showRecordingText("Saved");
-                    finishKeepingText();
-                } else {
-                    badExpression();
+                if (!ok) {
+                    error(R.string.gate_err_mismatch);   // the two entries did not match
+                    return true;
                 }
+                mCredential.save(mDigits1, toIntArray(mOps1));
+                resetState();                            // leave recording synchronously
+                mHost.revealClear(new Runnable() {
+                    @Override public void run() {
+                        mHost.showRecordingText("Saved");
+                        mListener.onRecordingSaved();    // controller restores the normal look
+                    }
+                });
                 return true;
             }
             default:
@@ -153,29 +166,19 @@ final class PinRecorder {
         }
     }
 
-    /** Cancel any in-progress recording (e.g. when the Activity stops). */
+    /** Interruption (Activity stop, Clear/Delete): reset without leaving PIN-setup mode. */
     void cancel() {
-        finish();
-    }
-
-    private void badExpression() {
-        // Spec section 6: a confirmation mismatch shows the stock error_syntax string
-        // ("Bad expression"). We reuse it for any recording failure.
-        mHost.showRecordingText(mHost.context().getString(R.string.error_syntax));
-        finishKeepingText();
-    }
-
-    /** Reset state and drop the indicator and any result text. */
-    private void finish() {
         resetState();
-        mHost.setRecordingIndicator(false);
-        mHost.showRecordingText("");
     }
 
-    /** Reset state and drop the indicator but keep whatever text was just shown ("Saved"/error). */
-    private void finishKeepingText() {
+    /**
+     * Non-terminal error: reset the attempt, clear the display, and show specific guidance dismissed
+     * with "Try again". Stays in PIN-setup mode — an armed app must not be left without a PIN.
+     */
+    private void error(int messageRes) {
         resetState();
-        mHost.setRecordingIndicator(false);
+        mHost.clearDisplayQuietly();
+        mHost.showGateDialog(R.string.gate_prompt_title, messageRes, R.string.gate_try_again);
     }
 
     private void resetState() {

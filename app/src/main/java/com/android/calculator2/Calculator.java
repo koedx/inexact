@@ -248,6 +248,7 @@ public class Calculator extends Activity
     private Evaluator mEvaluator;
 
     // --- InExact gate (step 1) ---
+    private static final String GATE_DIALOG_TAG = "gate_setup";  // dismiss-only setup/error dialogs
     private com.android.calculator2.gate.GateController mGate;  // null unless armed (spec §4)
 
     private final com.android.calculator2.gate.GateHost mGateHost =
@@ -269,10 +270,32 @@ public class Calculator extends Activity
         @Override public void showRecordingText(CharSequence text) {
             mResultText.setText(text == null ? "" : text);   // §6 echo — unverified vs CalculatorResult
         }
-        @Override public void setRecordingIndicator(boolean on) {
-            if (mEqualButton instanceof TextView) {
-                ((TextView) mEqualButton).setText(on ? "\u2022" : getString(R.string.eq));
+        @Override public void setPinModeVisuals(boolean on) {
+            final View advanced = findViewById(R.id.pad_advanced);
+            if (advanced != null) {
+                advanced.setBackgroundColor(ContextCompat.getColor(Calculator.this,
+                        on ? R.color.gate_pin_mode_background_color
+                           : R.color.pad_advanced_background_color));
             }
+            if (on) {
+                mModeView.setText(R.string.gate_pin_label);
+            } else {
+                onModeChanged(mEvaluator.getDegreeMode(Evaluator.MAIN_INDEX));  // restore deg/rad
+            }
+        }
+        @Override public void revealClear(final Runnable onComplete) {
+            // Anchor on the delete button so the blue bloom is identical to a normal clear in every
+            // orientation (eq's position differs by layout; delete's is always under the display).
+            reveal(mDeleteButton, R.color.calculator_primary_color, new AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(Animator animation) {
+                    onClearAnimationEnd();          // clears expr + result + INPUT + redisplay, no history
+                    if (onComplete != null) onComplete.run();
+                }
+            });
+        }
+        @Override public void showGateDialog(int titleRes, int messageRes, int buttonRes) {
+            AlertDialogFragment.showMessageDialog(Calculator.this, getString(titleRes),
+                    getString(messageRes), getString(buttonRes), GATE_DIALOG_TAG);
         }
     };
 
@@ -486,6 +509,10 @@ public class Calculator extends Activity
         mMainCalculator.setImportantForAccessibility(
                 mDragLayout.isOpen() ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                         : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+
+        if (mGate != null) {
+            mGate.onActivityResumed();   // solution 3: show PIN-setup UI while setup is allowed
+        }
     }
 
     @Override
@@ -1290,6 +1317,8 @@ public class Calculator extends Activity
             } else if (Evaluator.TIMEOUT_DIALOG_TAG.equals(fragment.getTag())) {
                 // Timeout extension request.
                 mEvaluator.setLongTimeout();
+            } else if (GATE_DIALOG_TAG.equals(fragment.getTag())) {
+                // InExact setup instruction / error dialog — dismiss only, no action.
             } else {
                 Log.e(TAG, "Unknown AlertDialogFragment click:" + fragment.getTag());
             }

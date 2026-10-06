@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- InExact gate strings. Separate file so it merges with the stock strings without overwriting. -->
+<resources>
+    <string name="gate_pin_label" translatable="false">PIN</string>
+    <string name="gate_prompt_title">Set PIN</string>
+    <string name="gate_prompt_digits">Enter the PIN digits, then press and hold =.</string>
+    <string name="gate_prompt_ops">Now enter the operator sequence (e.g. × × ÷ ÷), then press and hold =.</string>
+
+    <!-- Dialog dismiss buttons -->
+    <string name="gate_got_it">Got it</string>
+    <string name="gate_try_again">Try again</string>
+
+    <!-- Error guidance (non-terminal; the app stays in PIN-setup mode) -->
+    <string name="gate_err_digits">The PIN must be whole digits 0–9 only — no decimal point, operators, or functions. Type the digits, then press and hold =.</string>
+    <string name="gate_err_no_ops">Add at least one operator (+ − × ÷ ^) after the digits, then press and hold =.</string>
+    <string name="gate_err_ops_only">Only operators (+ − × ÷ ^) belong in the sequence. Press and hold = when the sequence is complete.</string>
+    <string name="gate_err_mismatch">That didn\'t match your first entry. Enter the same digits and operator sequence both times.</string>
+</resources>

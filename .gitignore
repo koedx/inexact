@@ -2,3 +2,4 @@
 *.p12
 *.keystore
 apk-out
+apk-out/
