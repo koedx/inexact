@@ -2,7 +2,7 @@
 <!-- InExact gate colors. Separate file so it merges with the stock colors without overwriting. -->
 <resources>
     <!-- Advanced-pad background while in PIN-setup mode. A pale warm red: clearly "alert/red" yet
-         light enough for the pads' dark key labels to stay readable (black-on-#EF9A9A ~9:1).
+         light enough for the pads' dark key labels to stay readable (black-on-#E57373 ~7:1).
          Distinct from the stock mint pad (#1DE9B6) and the math-error magenta (#C2185B). -->
-    <color name="gate_pin_mode_background_color">#EF9A9A</color>
+    <color name="gate_pin_mode_background_color">#E57373</color>
 </resources>
