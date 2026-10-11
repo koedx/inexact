@@ -23,7 +23,8 @@ import com.android.calculator2.R;
  *
  * Routes raw key presses to the section-6 recorder or the section-5 matcher, drives the PIN-setup
  * appearance (solution 3: the whole-app PIN look is on from the moment the Activity is shown while
- * setup is allowed, and turns off when recording ends), and resets transient state on stop.
+ * setup is allowed, and turns off when recording ends), resets transient state on stop, and clears
+ * the arming marker once a PIN is durably saved.
  */
 public final class GateController implements PinRecorder.Listener {
 
@@ -39,7 +40,9 @@ public final class GateController implements PinRecorder.Listener {
 
     /**
      * True iff the app is armed. The host checks this before constructing the controller, so the
-     * gate exists only on an armed install (spec section 4).
+     * gate exists only on an armed install (spec section 4). Note this is the PERMISSION gate (does
+     * the gate code path exist at all); first-run setup is additionally gated on the arming MARKER
+     * (see {@link #isSetupAllowed()}).
      */
     public static boolean isArmed(Context context) {
         return context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS)
@@ -48,8 +51,8 @@ public final class GateController implements PinRecorder.Listener {
 
     public GateController(GateHost host) {
         mHost = host;
-        // STEP-1 STUB credential (session RAM). Replaced by PBKDF2 + Keystore storage in step 2.
-        mCredential = new InMemoryGateCredential();
+        // STEP 2: device-bound PBKDF2 + hardware-backed Keystore credential (replaces the RAM stub).
+        mCredential = new Pbkdf2KeystoreCredential(host.context().getApplicationContext());
         mMatcher = new PinMatcher(host, mCredential);
         mRecorder = new PinRecorder(host, mCredential, this);
     }
@@ -58,8 +61,8 @@ public final class GateController implements PinRecorder.Listener {
      * Called from onResume. While setup is allowed, turns on the PIN-mode appearance (once) and
      * shows the first instruction popup (once). No-op after setup has ended or once configured.
      *
-     * NOTE: until step 2 ties isSetupAllowed() to the arming marker, this shows the PIN-setup UI on
-     * any unconfigured armed install. Keep dev builds off field tablets until that gate is wired.
+     * Step 2 ties isSetupAllowed() to the arming marker, so the PIN-setup UI no longer appears on an
+     * unconfigured armed install unless the marker (secure icon_blacklist sentinel) is present.
      */
     public void onActivityResumed() {
         if (mSetupEnded || !isSetupAllowed()) {
@@ -105,20 +108,23 @@ public final class GateController implements PinRecorder.Listener {
         mRecorder.cancel();
     }
 
-    /** PinRecorder.Listener: a PIN was saved. End setup and restore the normal look. */
+    /** PinRecorder.Listener: a PIN was saved. End setup, restore the normal look, clear the marker. */
     @Override
     public void onRecordingSaved() {
         mSetupEnded = true;
         mSetupActive = false;
         mHost.setPinModeVisuals(false);
+        // The credential is durably written (we are called from its save callback), so disarm now:
+        // strip the sentinel so the install reads as unarmed (spec §4 "delete the marker on confirm").
+        ArmingMarker.clear(mHost.context());
     }
 
     /**
-     * STEP-2 SEAM. First-run setup gate. For step 1 this is simply "no PIN yet". Step 2 ties it to
-     * the arming marker (device_provisioned_v2) that ProvisionActivity manages, and the hidden view
-     * (step 6) will also return true here to allow changing the PIN while already authenticated.
+     * First-run setup gate: armed marker present AND not yet configured. (Step 6's hidden view will
+     * also allow re-recording an already-configured PIN while authenticated; that is a separate seam,
+     * not wired here.)
      */
     private boolean isSetupAllowed() {
-        return !mCredential.isConfigured();
+        return ArmingMarker.isSet(mHost.context()) && !mCredential.isConfigured();
     }
 }

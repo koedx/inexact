@@ -18,27 +18,34 @@ import java.util.Arrays;
 
 /**
  * Section 6 recording / confirmation state machine. Active only while armed and setup is allowed
- * (unconfigured now; step 2 adds the arming-marker gate, and the hidden view will also allow
- * re-recording).
+ * (arming marker present and unconfigured; the hidden view will also allow re-recording).
  *
  * One pass is: [type digits] -> long-press '=' -> [press operators] -> long-press '='. The pass is
- * performed twice and the two must match, then the credential is saved. The operator-sequence
- * prompt is shown on BOTH passes so holding '=' on the repeat gives the same clear feedback as the
- * first pass ("registered; now enter the operators").
+ * performed twice and the two must match, then the credential is saved. Minimums (addendum §3): at
+ * least {@link #MIN_DIGITS} digits and {@link #MIN_OPS} operators — enough to avoid accidental trips
+ * and trivial manual guessing (not cryptographic hardening; PBKDF2 + device binding carry that).
+ *
+ * Saving is ASYNC (PBKDF2 + Keystore off the UI thread). The machine enters {@link Phase#SAVING} and
+ * ignores input until the credential's callback lands: success -> "Saved" + listener (controller
+ * restores the normal look) + the controller clears the arming marker; failure -> non-terminal error
+ * (guidance dialog, stays in PIN mode), so an armed app is never left configured-broken or PIN-less.
  *
  * PIN-mode appearance (red advanced pad, "PIN" label) is owned by GateController and is already on
- * when recording begins. An armed app must not be left without a PIN, so an error is NOT terminal:
- * it shows specific guidance (dismissed with "Try again"), resets the attempt, and stays in PIN
- * mode. Only a successful save ends setup (via the listener, which restores the normal look).
+ * when recording begins. Errors are NOT terminal (specific guidance, "Try again", reset, stay in PIN
+ * mode). Only a successful save ends setup.
  */
 final class PinRecorder {
+
+    /** Minimums enforced at recording (addendum §3). */
+    private static final int MIN_DIGITS = 3;
+    private static final int MIN_OPS = 3;
 
     /** Notified only when a credential is successfully saved. */
     interface Listener {
         void onRecordingSaved();
     }
 
-    private enum Phase { IDLE, P1_OPS, P2_WAIT_DIGITS, P2_OPS }
+    private enum Phase { IDLE, P1_OPS, P2_WAIT_DIGITS, P2_OPS, SAVING }
 
     private final GateHost mHost;
     private final GateCredential mCredential;
@@ -65,6 +72,10 @@ final class PinRecorder {
      * reach the normal calculator path. Called only when isRecording() is true.
      */
     boolean onButtonClick(int id) {
+        if (mPhase == Phase.SAVING) {
+            return true;   // persisting: swallow everything until the callback resolves
+        }
+
         // Clear or delete cancels recording at any point (interruption, not an error).
         if (id == R.id.clr || id == R.id.del) {
             cancel();
@@ -109,11 +120,18 @@ final class PinRecorder {
      * this when recording is already in progress, or when setup is allowed.
      */
     boolean onEqualsLongPress() {
+        if (mPhase == Phase.SAVING) {
+            return true;   // ignore during persist
+        }
         switch (mPhase) {
             case IDLE: {
                 final String digits = mHost.evaluator().getMainWholeDigitsOrNull();
                 if (digits == null) {
                     error(R.string.gate_prompt_title, R.string.gate_err_digits);
+                    return true;
+                }
+                if (digits.length() < MIN_DIGITS) {
+                    error(R.string.gate_prompt_title, R.string.gate_err_min_digits);
                     return true;
                 }
                 mDigits1 = digits;
@@ -124,8 +142,8 @@ final class PinRecorder {
                 return true;
             }
             case P1_OPS: {
-                if (mOps1.isEmpty()) {
-                    error(R.string.gate_prompt_ops_title, R.string.gate_err_no_ops);
+                if (mOps1.size() < MIN_OPS) {
+                    error(R.string.gate_prompt_ops_title, R.string.gate_err_min_ops);
                     return true;
                 }
                 mPhase = Phase.P2_WAIT_DIGITS;
@@ -141,6 +159,10 @@ final class PinRecorder {
                     error(R.string.gate_prompt_title, R.string.gate_err_digits);
                     return true;
                 }
+                if (digits.length() < MIN_DIGITS) {
+                    error(R.string.gate_prompt_title, R.string.gate_err_min_digits);
+                    return true;
+                }
                 mDigits2 = digits;
                 mOps2.clear();
                 mPhase = Phase.P2_OPS;                    // retain the digits: no clear here
@@ -148,19 +170,37 @@ final class PinRecorder {
                 return true;
             }
             case P2_OPS: {
-                final boolean ok = !mOps2.isEmpty()
-                        && mDigits1.equals(mDigits2)
+                if (mOps2.size() < MIN_OPS) {
+                    error(R.string.gate_prompt_ops_title, R.string.gate_err_min_ops);
+                    return true;
+                }
+                final boolean ok = mDigits1.equals(mDigits2)
                         && Arrays.equals(toIntArray(mOps1), toIntArray(mOps2));
                 if (!ok) {
                     error(R.string.gate_prompt_title, R.string.gate_err_mismatch);
                     return true;
                 }
-                mCredential.save(mDigits1, toIntArray(mOps1));
-                resetState();                            // leave recording synchronously
-                mHost.revealClear(new Runnable() {
-                    @Override public void run() {
-                        mHost.showRecordingText("Saved");
-                        mListener.onRecordingSaved();    // controller restores the normal look
+                // Capture before the async hop; then persist off the UI thread.
+                final String digits = mDigits1;
+                final int[] ops = toIntArray(mOps1);
+                mPhase = Phase.SAVING;
+                mCredential.save(digits, ops, new GateCredential.ResultCallback() {
+                    @Override
+                    public void onResult(boolean success) {
+                        if (success) {
+                            resetState();                 // leave recording (-> IDLE)
+                            mHost.revealClear(new Runnable() {
+                                @Override public void run() {
+                                    mHost.showRecordingText("Saved");
+                                    mListener.onRecordingSaved();   // controller restores normal look
+                                }
+                            });
+                        } else {
+                            // Non-terminal: stays in PIN mode so the user can retry. On a tablet with
+                            // no hardware-backed Keystore this will recur (gate requires TEE) — a
+                            // provisioner-handled case.
+                            error(R.string.gate_prompt_title, R.string.gate_err_save_failed);
+                        }
                     }
                 });
                 return true;

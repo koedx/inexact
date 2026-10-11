@@ -49,9 +49,13 @@
             android:theme="@style/Theme.Licenses"
             android:exported="false" />
 
-        <!-- InExact: provisioning entry point. Not exported, so only the shell
-             (am start) and this app can launch it; other apps cannot. Milestone 0
-             stub only logs and finishes; the real provisioning logic is added later. -->
+        <!-- InExact: provisioning entry point (scripted PIN config, spec §8 path a).
+             Exported but guarded by the DUMP permission — a permission only the shell
+             holds, which a third-party app cannot declare or hold — and with NO
+             intent-filter, so it is reachable only by explicit component name from the
+             shell. (Non-exported does NOT work on this ROM: the shell is denied
+             "not exported from uid ...".) The inner access check is the arming marker,
+             verified inside the activity. -->
         <activity
             android:name=".gate.ProvisionActivity"
             android:exported="true"

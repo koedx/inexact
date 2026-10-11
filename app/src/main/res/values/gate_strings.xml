@@ -7,9 +7,9 @@
     <string name="gate_prompt_title">Set PIN</string>
     <string name="gate_prompt_ops_title">Set Operator Sequence</string>
 
-    <!-- Instruction prompts (explicit about valid input from the outset) -->
-    <string name="gate_prompt_digits">Enter your PIN using whole digits 0–9 only — no decimal point, operators, or functions. Then press and hold =.</string>
-    <string name="gate_prompt_ops">Enter your operator sequence using only + − × ÷ ^ (at least one; repeats are allowed, e.g. × × ÷ ÷). Then press and hold =.</string>
+    <!-- Instruction prompts (explicit about valid input and the 3+3 minimums from the outset) -->
+    <string name="gate_prompt_digits">Enter your PIN using at least 3 whole digits 0–9 only — no decimal point, operators, or functions. Then press and hold =.</string>
+    <string name="gate_prompt_ops">Enter your operator sequence using only + − × ÷ ^ — at least 3 (repeats are allowed, e.g. × × ÷ ÷). Then press and hold =.</string>
 
     <!-- Dialog dismiss buttons -->
     <string name="gate_got_it">Got it</string>
@@ -17,7 +17,13 @@
 
     <!-- Error guidance (non-terminal; the app stays in PIN-setup mode) -->
     <string name="gate_err_digits">That isn\'t a valid PIN. Use whole digits 0–9 only — no decimal point, operators, or functions — then press and hold =.</string>
-    <string name="gate_err_no_ops">No operators entered. Add at least one of + − × ÷ ^ after the digits, then press and hold =.</string>
+    <string name="gate_err_min_digits">Your PIN needs at least 3 digits. Enter 3 or more whole digits (0–9), then press and hold =.</string>
     <string name="gate_err_ops_only">Only operators (+ − × ÷ ^) belong in the sequence. Press and hold = when the sequence is complete.</string>
+    <string name="gate_err_min_ops">Your operator sequence needs at least 3 operators. Add more of + − × ÷ ^, then press and hold =.</string>
     <string name="gate_err_mismatch">That didn\'t match your first entry. Enter the same digits and the same operator sequence both times.</string>
+    <string name="gate_err_save_failed">Couldn\'t save the PIN on this device. Press and hold = to try again.</string>
+
+    <!-- Deprecated (step 2): the "no operators" case is now covered by gate_err_min_ops. Retained
+         to avoid a build break in case it is referenced elsewhere; safe to delete once confirmed. -->
+    <string name="gate_err_no_ops">No operators entered. Add at least one of + − × ÷ ^ after the digits, then press and hold =.</string>
 </resources>

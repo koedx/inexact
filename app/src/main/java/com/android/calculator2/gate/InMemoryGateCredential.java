@@ -18,21 +18,14 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * STEP-1 STUB ONLY.
+ * DEV / UNIT STUB ONLY.
  *
- * Holds the credential in RAM for the current process only (no persistence, no hashing). Its sole
- * purpose is to make step 1 testable end-to-end: record a PIN through the section-6 flow, then enter
- * it, and watch the gate fire. It is replaced wholesale in step 2 by a PBKDF2 + Keystore-backed,
- * device-bound implementation.
+ * Holds the credential in RAM for the current process only (no persistence, no hashing, no device
+ * binding). Kept after step 2 for fast unit testing and for exercising the matcher/recorder without
+ * Keystore. The shipping path is {@link Pbkdf2KeystoreCredential}.
  *
- * WARNING: plaintext in RAM is acceptable only as a transient dev stub. This class MUST NOT ship —
- * it violates the "no plaintext PIN anywhere (at rest)" invariant the moment it is persisted, and
- * even in RAM it is only tolerable because the candidate PIN is already transient there during entry.
- *
- * The comparison runs on a background thread and posts the result to the UI thread, mirroring the
- * step-2 shape so the matcher is already written against the async contract. (The equality check
- * here is not constant-time; that only matters for the step-2 hash comparison, which will use a
- * constant-time compare.)
+ * WARNING: plaintext in RAM — MUST NOT ship. GateController wires the real credential; this class is
+ * only instantiated by tests.
  */
 public final class InMemoryGateCredential implements GateCredential {
 
@@ -48,9 +41,23 @@ public final class InMemoryGateCredential implements GateCredential {
     }
 
     @Override
-    public void save(String digits, int[] opIds) {
-        mDigits = digits;
-        mOps = (opIds == null) ? new int[0] : opIds.clone();
+    public int configuredOpLen() {
+        final int[] ops = mOps;
+        return (mDigits == null || ops == null) ? -1 : ops.length;
+    }
+
+    @Override
+    public void save(final String digits, final int[] opIds, final ResultCallback callback) {
+        mWorker.execute(new Runnable() {
+            @Override
+            public void run() {
+                mOps = (opIds == null) ? new int[0] : opIds.clone();
+                mDigits = digits;   // set last: isConfigured() flips only once ops are in place
+                mMain.post(new Runnable() {
+                    @Override public void run() { callback.onResult(true); }
+                });
+            }
+        });
     }
 
     @Override
@@ -64,10 +71,7 @@ public final class InMemoryGateCredential implements GateCredential {
                         && refDigits.equals(digits)
                         && Arrays.equals(refOps, opIds);
                 mMain.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        callback.onResult(match);
-                    }
+                    @Override public void run() { callback.onResult(match); }
                 });
             }
         });
