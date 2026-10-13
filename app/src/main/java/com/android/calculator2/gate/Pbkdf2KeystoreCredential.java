@@ -16,6 +16,7 @@ import android.os.Looper;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyInfo;
 import android.security.keystore.KeyProperties;
+import android.util.Log;
 
 import com.android.calculator2.R;
 
@@ -38,7 +39,7 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
 /**
- * Shipping credential (spec addendum 2026-10-09-01 §2).
+ * Shipping credential (spec addendum 2026-10-09-01 §2; perf revisions in 2026-10-12-01).
  *
  * At rest: a salted PBKDF2-HMAC-SHA256 hash of the PIN, then HMAC-SHA256'd with a non-exportable,
  * HARDWARE-BACKED AndroidKeyStore key. The Keystore HMAC is what binds the verifier to this device:
@@ -53,13 +54,20 @@ import javax.crypto.spec.PBEKeySpec;
  */
 public final class Pbkdf2KeystoreCredential implements GateCredential {
 
+    /** STEP-2b TEST CRUTCH: timing instrumentation. Remove in the step-3 leak review along with the
+     *  openGate() log. Logs elapsed milliseconds only — never digits, operators, salt or verifier.
+     *  Log.i (not .d) because this ROM sets log.tag=I, which discards DEBUG before it reaches the
+     *  buffer. */
+    private static final boolean TIMING_LOG = true;
+    private static final String TAG = "InExactGate";
+
     private static final String ANDROID_KEYSTORE = "AndroidKeyStore";
     private static final String KEY_ALIAS        = "inexact_gate_hmac_v1";
     private static final String HMAC_ALG         = "HmacSHA256";
-    private static final String PBKDF2_ALG        = "PBKDF2withHmacSHA256";
-    private static final String GATE_FILE         = ".gate";
+    private static final String PBKDF2_ALG       = "PBKDF2withHmacSHA256";
+    private static final String GATE_FILE        = ".gate";
 
-    // Blob layout (57 bytes). See addendum §2.5.
+    // Blob layout (57 bytes). See addendum 2026-10-09-01 §2.5.
     private static final byte FORMAT_VERSION = 0x01;
     private static final int  SALT_LEN       = 16;
     private static final int  VERIFIER_LEN   = 32;   // HMAC-SHA256 output
@@ -68,12 +76,18 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
     private static final byte FLAG_TEE       = 0x01; // bit0: key inside secure hardware
 
     /**
-     * PBKDF2 iterations. Benchmark-tuned floor (~250 ms/run target on the MT8168 Cortex-A53). Stored
-     * in the blob, so this can be raised later and existing installs re-derive on next entry without
-     * invalidation. With a hardware-backed key, offline attack is impossible regardless of count, so
-     * this is defense-in-depth, not the primary defense.
+     * PBKDF2 iterations for NEW credentials.
+     *
+     * Measured on the MT8168 (Cortex-A53, pure-Java PBKDF2): 150,000 cost roughly 1 s of steady-state
+     * derivation — about 4x the ~250 ms design target. Lowered to 50,000 (addendum 2026-10-12-01).
+     * This is sound on the design's own terms: hardware-backing is REQUIRED and there is no
+     * software-backed path, so an offline attack is impossible regardless of the iteration count —
+     * iterations are defense-in-depth, not the primary defense.
+     *
+     * The count is stored per-blob, so existing credentials keep deriving at the count they were
+     * saved with. Re-save (re-provision or re-record) to pick up a new value.
      */
-    private static final int ITERATIONS = 150_000;
+    private static final int ITERATIONS = 50_000;
 
     private final Context mContext;
     private final ExecutorService mWorker = Executors.newSingleThreadExecutor();
@@ -82,9 +96,62 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
     private final Object mLock = new Object();
     private volatile boolean mLoaded;
     private volatile Blob mBlob;   // null => unconfigured
+    private volatile boolean mWarmed;
 
     public Pbkdf2KeystoreCredential(Context context) {
         mContext = context.getApplicationContext();
+    }
+
+    // ---- warm-up -----------------------------------------------------------------------------
+
+    /**
+     * Pay the one-time cost of class loading, JCA provider initialisation, Keystore binder setup and
+     * JIT warm-up on the background thread, so the first real attempt is not slower than the rest.
+     * Measured cold-vs-warm difference on the MT8168 was roughly 1 s (≈2 s first attempt vs ≈1 s
+     * after) — entirely one-time cost, not derivation cost.
+     *
+     * Called from onResume while the gate exists. Idempotent and cheap (a 1-iteration derivation).
+     * Deliberately does NOT generate a Keystore key: warm-up must not create state on an install
+     * that may never be configured. If the key is absent (unconfigured), the PBKDF2 half still warms.
+     */
+    public void warmUp() {
+        if (mWarmed) {
+            return;
+        }
+        mWarmed = true;
+        mWorker.execute(new Runnable() {
+            @Override
+            public void run() {
+                final long t0 = System.nanoTime();
+                char[] pw = null;
+                byte[] dk = null;
+                try {
+                    // Warms SecretKeyFactory + the PBKDF2 code path (1 iteration: negligible cost).
+                    pw = new char[] { 'w', 'a', 'r', 'm' };
+                    dk = pbkdf2(pw, new byte[SALT_LEN], 1);
+
+                    // Warms the Keystore binder + Mac path, but only if a key already exists.
+                    final KeyStore ks = KeyStore.getInstance(ANDROID_KEYSTORE);
+                    ks.load(null);
+                    if (ks.containsAlias(KEY_ALIAS)) {
+                        final SecretKey key = (SecretKey) ks.getKey(KEY_ALIAS, null);
+                        if (key != null) {
+                            final Mac mac = Mac.getInstance(HMAC_ALG);
+                            mac.init(key);
+                            mac.doFinal(dk);
+                        }
+                    }
+                    if (TIMING_LOG) {
+                        Log.i(TAG, "warmUp " + ((System.nanoTime() - t0) / 1_000_000L) + "ms");
+                    }
+                } catch (Throwable t) {
+                    // Warm-up is best-effort: a failure here must never affect correctness.
+                } finally {
+                    if (pw != null) Arrays.fill(pw, '\0');
+                    if (dk != null) Arrays.fill(dk, (byte) 0);
+                }
+            }
+        });
     }
 
     // ---- GateCredential ----------------------------------------------------------------------
@@ -108,6 +175,7 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
         mWorker.execute(new Runnable() {
             @Override
             public void run() {
+                final long t0 = System.nanoTime();
                 boolean ok = false;
                 char[] pw = null;
                 byte[] dk = null;
@@ -136,6 +204,10 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
                     if (pw != null) Arrays.fill(pw, '\0');
                     if (dk != null) Arrays.fill(dk, (byte) 0);
                 }
+                if (TIMING_LOG) {
+                    Log.i(TAG, "save " + ((System.nanoTime() - t0) / 1_000_000L) + "ms ok=" + ok
+                            + " iter=" + ITERATIONS);
+                }
                 postResult(cb, ok);
             }
         });
@@ -153,6 +225,7 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
         mWorker.execute(new Runnable() {
             @Override
             public void run() {
+                final long t0 = System.nanoTime();
                 boolean match = false;
                 char[] pw = null;
                 byte[] dk = null;
@@ -166,6 +239,12 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
                 } finally {
                     if (pw != null) Arrays.fill(pw, '\0');
                     if (dk != null) Arrays.fill(dk, (byte) 0);
+                }
+                if (TIMING_LOG) {
+                    // Elapsed + the blob's stored iteration count only. No PIN material, and no
+                    // indication of match/no-match beyond what the UI already shows.
+                    Log.i(TAG, "test " + ((System.nanoTime() - t0) / 1_000_000L) + "ms iter="
+                            + blob.iterations);
                 }
                 postResult(cb, match);
             }
@@ -193,7 +272,7 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
         return pw;
     }
 
-    /** Fixed operator code independent of R.id (addendum §2.5). */
+    /** Fixed operator code independent of R.id (addendum 2026-10-09-01 §2.5). */
     private static int stableOp(int rid) {
         if (rid == R.id.op_add) return 1;
         if (rid == R.id.op_sub) return 2;

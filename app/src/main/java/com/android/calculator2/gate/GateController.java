@@ -29,7 +29,9 @@ import com.android.calculator2.R;
 public final class GateController implements PinRecorder.Listener {
 
     private final GateHost mHost;
-    private final GateCredential mCredential;
+    /** Concrete type: the controller drives warm-up, which is an implementation concern and
+     *  deliberately not part of the GateCredential seam. */
+    private final Pbkdf2KeystoreCredential mCredential;
     private final PinMatcher mMatcher;
     private final PinRecorder mRecorder;
 
@@ -61,10 +63,13 @@ public final class GateController implements PinRecorder.Listener {
      * Called from onResume. While setup is allowed, turns on the PIN-mode appearance (once) and
      * shows the first instruction popup (once). No-op after setup has ended or once configured.
      *
-     * Step 2 ties isSetupAllowed() to the arming marker, so the PIN-setup UI no longer appears on an
-     * unconfigured armed install unless the marker (secure icon_blacklist sentinel) is present.
+     * Also kicks the credential warm-up (step 2b): class loading, JCA provider init and Keystore
+     * binder setup are one-time costs worth roughly a second on this SoC, and paying them here on
+     * the background thread keeps the first PIN attempt as fast as later ones.
      */
     public void onActivityResumed() {
+        mCredential.warmUp();   // idempotent, background, no Keystore key is created by this
+
         if (mSetupEnded || !isSetupAllowed()) {
             return;
         }
