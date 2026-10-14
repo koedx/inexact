@@ -263,9 +263,8 @@ public class Calculator extends Activity
         }
         @Override public void openGate() {
             clearDisplayQuietly();                  // "clear the display when the hidden view opens"
-            // STEP-6 SEAM: launch the hidden view here.
-            // STEP-1 TEST SIGNAL ONLY — remove in the step-3 leak-path review:
-            android.util.Log.d(TAG, "InExact gate opened");
+            // STEP-6 SEAM: launch the hidden view here. Deliberately no logging: a log line on the
+            // match path is a leak (step-3 review removed the step-1 test crutch).
         }
         @Override public void showRecordingText(CharSequence text) {
             mResultText.setText(text == null ? "" : text);   // §6 echo — unverified vs CalculatorResult

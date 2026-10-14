@@ -16,7 +16,6 @@ import android.os.Looper;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyInfo;
 import android.security.keystore.KeyProperties;
-import android.util.Log;
 
 import com.android.calculator2.R;
 
@@ -39,7 +38,7 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
 /**
- * Shipping credential (spec addendum 2026-10-09-01 §2; perf revisions in 2026-10-12-01).
+ * Shipping credential (spec v0.3 §5).
  *
  * At rest: a salted PBKDF2-HMAC-SHA256 hash of the PIN, then HMAC-SHA256'd with a non-exportable,
  * HARDWARE-BACKED AndroidKeyStore key. The Keystore HMAC is what binds the verifier to this device:
@@ -53,13 +52,6 @@ import javax.crypto.spec.PBEKeySpec;
  * poll them per keypress without file I/O.
  */
 public final class Pbkdf2KeystoreCredential implements GateCredential {
-
-    /** STEP-2b TEST CRUTCH: timing instrumentation. Remove in the step-3 leak review along with the
-     *  openGate() log. Logs elapsed milliseconds only — never digits, operators, salt or verifier.
-     *  Log.i (not .d) because this ROM sets log.tag=I, which discards DEBUG before it reaches the
-     *  buffer. */
-    private static final boolean TIMING_LOG = true;
-    private static final String TAG = "InExactGate";
 
     private static final String ANDROID_KEYSTORE = "AndroidKeyStore";
     private static final String KEY_ALIAS        = "inexact_gate_hmac_v1";
@@ -122,7 +114,6 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
         mWorker.execute(new Runnable() {
             @Override
             public void run() {
-                final long t0 = System.nanoTime();
                 char[] pw = null;
                 byte[] dk = null;
                 try {
@@ -140,9 +131,6 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
                             mac.init(key);
                             mac.doFinal(dk);
                         }
-                    }
-                    if (TIMING_LOG) {
-                        Log.i(TAG, "warmUp " + ((System.nanoTime() - t0) / 1_000_000L) + "ms");
                     }
                 } catch (Throwable t) {
                     // Warm-up is best-effort: a failure here must never affect correctness.
@@ -175,7 +163,6 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
         mWorker.execute(new Runnable() {
             @Override
             public void run() {
-                final long t0 = System.nanoTime();
                 boolean ok = false;
                 char[] pw = null;
                 byte[] dk = null;
@@ -204,10 +191,6 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
                     if (pw != null) Arrays.fill(pw, '\0');
                     if (dk != null) Arrays.fill(dk, (byte) 0);
                 }
-                if (TIMING_LOG) {
-                    Log.i(TAG, "save " + ((System.nanoTime() - t0) / 1_000_000L) + "ms ok=" + ok
-                            + " iter=" + ITERATIONS);
-                }
                 postResult(cb, ok);
             }
         });
@@ -225,7 +208,6 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
         mWorker.execute(new Runnable() {
             @Override
             public void run() {
-                final long t0 = System.nanoTime();
                 boolean match = false;
                 char[] pw = null;
                 byte[] dk = null;
@@ -239,12 +221,6 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
                 } finally {
                     if (pw != null) Arrays.fill(pw, '\0');
                     if (dk != null) Arrays.fill(dk, (byte) 0);
-                }
-                if (TIMING_LOG) {
-                    // Elapsed + the blob's stored iteration count only. No PIN material, and no
-                    // indication of match/no-match beyond what the UI already shows.
-                    Log.i(TAG, "test " + ((System.nanoTime() - t0) / 1_000_000L) + "ms iter="
-                            + blob.iterations);
                 }
                 postResult(cb, match);
             }

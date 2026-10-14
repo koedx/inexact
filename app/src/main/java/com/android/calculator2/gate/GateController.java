@@ -107,10 +107,26 @@ public final class GateController implements PinRecorder.Listener {
         return false;   // configured and not in setup: long-press '=' is a no-op
     }
 
-    /** Reset transient matcher/recorder state when the Activity is no longer visible. */
+    /**
+     * Reset transient matcher/recorder state when the Activity is no longer visible.
+     *
+     * If recording was in progress, ALSO clear the display. Recording deliberately retains the PIN
+     * digits on the display between phases, and the stock Calculator saves the main expression in
+     * onSaveInstanceState — which runs AFTER onStop on API 28+ (target is 29) — so without this the
+     * digits would be written into the saved-instance bundle. Cleared here, the bundle holds an empty
+     * expression.
+     *
+     * Deliberately NOT done for the matcher's mid-sequence state: "digits then an operator" is
+     * ordinary calculator use, and clearing it would drop a user's in-progress expression whenever
+     * they switch apps — a stock calculator keeps it, so that would be a tell.
+     */
     public void onActivityStopped() {
+        final boolean wasRecording = mRecorder.isRecording();
         mMatcher.reset();
         mRecorder.cancel();
+        if (wasRecording) {
+            mHost.clearDisplayQuietly();
+        }
     }
 
     /** PinRecorder.Listener: a PIN was saved. End setup, restore the normal look, clear the marker. */
