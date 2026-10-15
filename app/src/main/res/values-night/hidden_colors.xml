@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="hidden_primary">#4CDADA</color>
+    <color name="hidden_on_primary">#003737</color>
+    <color name="hidden_primary_container">#004F50</color>
+    <color name="hidden_on_primary_container">#6FF7F6</color>
+    <color name="hidden_secondary">#B0CCCB</color>
+    <color name="hidden_on_secondary">#1B3534</color>
+    <color name="hidden_secondary_container">#324B4B</color>
+    <color name="hidden_on_secondary_container">#CCE8E7</color>
+    <color name="hidden_surface">#0E1514</color>
+    <color name="hidden_on_surface">#DDE4E3</color>
+    <color name="hidden_surface_variant">#3F4948</color>
+    <color name="hidden_on_surface_variant">#BEC9C8</color>
+    <color name="hidden_outline">#899392</color>
+    <color name="hidden_outline_variant">#3F4948</color>
+    <color name="hidden_error">#FFB4AB</color>
+    <color name="hidden_on_error">#690005</color>
+    <color name="hidden_error_container">#93000A</color>
+    <color name="hidden_on_error_container">#FFDAD6</color>
+    <color name="hidden_container_lowest">#090F0F</color>
+    <color name="hidden_container_low">#161D1D</color>
+    <color name="hidden_container">#1A2121</color>
+    <color name="hidden_container_high">#252B2B</color>
+    <color name="hidden_container_highest">#303636</color>
+    <bool name="hidden_light_bars">false</bool>
+</resources>

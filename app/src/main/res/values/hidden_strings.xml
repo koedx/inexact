@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hidden admin view text. English-only by design (admin tool), hence translatable="false".
+     The project name must never appear here (spec header). -->
+<resources>
+    <string name="hidden_title" translatable="false">Maintenance</string>
+
+    <string name="hidden_section_debugging" translatable="false">Debugging</string>
+    <string name="hidden_adb_title" translatable="false">USB debugging</string>
+    <string name="hidden_adb_desc" translatable="false">Lets a computer or second tablet connect with adb · adb_enabled</string>
+    <string name="hidden_dev_title" translatable="false">Developer options</string>
+    <string name="hidden_dev_desc" translatable="false">Shows the Developer options screen in Settings · development_settings_enabled</string>
+    <string name="hidden_dev_open" translatable="false">Open Developer options</string>
+    <string name="hidden_dev_open_desc" translatable="false">Opens the Developer options screen in Settings.</string>
+    <string name="hidden_dev_open_unavailable" translatable="false">Settings is disabled on this tablet. Re-enable it from the second tablet with: pm enable com.android.settings</string>
+    <string name="hidden_adb_off_title" translatable="false">Turn off USB debugging?</string>
+    <string name="hidden_adb_off_message" translatable="false">adb stays off until you turn it on here.</string>
+    <string name="hidden_adb_off_confirm" translatable="false">Turn off</string>
+    <string name="hidden_cancel" translatable="false">Cancel</string>
+    <string name="hidden_change_failed" translatable="false">That setting could not be changed.</string>
+
+    <string name="hidden_section_credential" translatable="false">Credential</string>
+    <string name="hidden_key_title" translatable="false">Keystore key</string>
+    <string name="hidden_key_checking" translatable="false">Checking…</string>
+    <string name="hidden_key_hw" translatable="false">Hardware-backed</string>
+    <string name="hidden_key_sw" translatable="false">Not hardware-backed</string>
+    <string name="hidden_key_missing" translatable="false">Missing</string>
+    <string name="hidden_stored_title" translatable="false">Stored PIN</string>
+    <string name="hidden_stored_fmt" translatable="false">Format v%1$d · %2$,d iterations · hardware flag %3$s</string>
+    <string name="hidden_stored_none" translatable="false">None</string>
+    <string name="hidden_flag_set" translatable="false">set</string>
+    <string name="hidden_flag_clear" translatable="false">clear</string>
+    <string name="hidden_change_pin" translatable="false">Change PIN</string>
+    <string name="hidden_change_pin_desc" translatable="false">Returns to the calculator in PIN-setup mode. The current PIN stays valid until the new one is saved.</string>
+
+    <string name="hidden_section_about" translatable="false">About</string>
+    <string name="hidden_version_title" translatable="false">Version</string>
+    <string name="hidden_version_fmt" translatable="false">%1$s (%2$s)</string>
+</resources>

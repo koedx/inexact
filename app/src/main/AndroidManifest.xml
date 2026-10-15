@@ -68,7 +68,7 @@
         <activity
             android:name=".gate.HiddenActivity"
             android:label="@string/app_name"
-            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:theme="@style/Theme.Hidden"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|density|fontScale|uiMode|layoutDirection"
             android:exported="false" />
 

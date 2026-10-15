@@ -3,8 +3,8 @@ apply plugin: 'com.android.application'
 // --- Version constants (kept as two separate values per project convention) ---
 // APP_VERSION is semantic; REVISION_DATE is an ISO date. Both are surfaced as
 // BuildConfig fields so a single edit here propagates to code and the APK.
-def appVersion = "0.3.0"
-def revisionDate = "2026-10-14"
+def appVersion = "0.3.1"
+def revisionDate = "2026-10-15"
 
 android {
     lint {
@@ -23,7 +23,7 @@ android {
         applicationId 'com.android.calculator'
         minSdk 29
         targetSdk 29
-        versionCode 4
+        versionCode 5
         versionName appVersion
 
         buildConfigField "String", "APP_VERSION", "\"${appVersion}\""
@@ -80,4 +80,8 @@ dependencies {
     implementation 'androidx.viewpager:viewpager:1.0.0'
     implementation 'androidx.customview:customview:1.1.0'
     implementation 'androidx.annotation:annotation:1.7.1'
+    // Hidden admin view UI (Material 3). Static palette: dynamic color needs Android 12+.
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
 }

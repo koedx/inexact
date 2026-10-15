@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hidden admin view palette: static tonal teal (dynamic color needs Android 12+; target is 10). -->
+<resources>
+    <color name="hidden_primary">#006A6A</color>
+    <color name="hidden_on_primary">#FFFFFF</color>
+    <color name="hidden_primary_container">#6FF7F6</color>
+    <color name="hidden_on_primary_container">#002020</color>
+    <color name="hidden_secondary">#4A6363</color>
+    <color name="hidden_on_secondary">#FFFFFF</color>
+    <color name="hidden_secondary_container">#CCE8E7</color>
+    <color name="hidden_on_secondary_container">#051F1F</color>
+    <color name="hidden_surface">#F4FBFA</color>
+    <color name="hidden_on_surface">#161D1D</color>
+    <color name="hidden_surface_variant">#DAE5E4</color>
+    <color name="hidden_on_surface_variant">#3F4948</color>
+    <color name="hidden_outline">#6F7979</color>
+    <color name="hidden_outline_variant">#BEC9C8</color>
+    <color name="hidden_error">#BA1A1A</color>
+    <color name="hidden_on_error">#FFFFFF</color>
+    <color name="hidden_error_container">#FFDAD6</color>
+    <color name="hidden_on_error_container">#410002</color>
+    <color name="hidden_container_lowest">#FFFFFF</color>
+    <color name="hidden_container_low">#EFF5F4</color>
+    <color name="hidden_container">#E9EFEE</color>
+    <color name="hidden_container_high">#E3E9E9</color>
+    <color name="hidden_container_highest">#DDE4E3</color>
+    <bool name="hidden_light_bars">true</bool>
+</resources>
