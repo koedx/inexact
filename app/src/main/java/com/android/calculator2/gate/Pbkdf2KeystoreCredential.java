@@ -142,6 +142,46 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
         });
     }
 
+    // ---- diagnostics -------------------------------------------------------------------------
+
+    /** Snapshot for the hidden view. Contains no secret material. */
+    public static final class Diagnostics {
+        public final boolean configured;
+        public final int formatVersion;
+        public final int iterations;
+        public final boolean blobHardwareFlag;
+        public final boolean keyPresent;
+        public final boolean keyHardwareBacked;
+
+        Diagnostics(boolean configured, int formatVersion, int iterations, boolean blobHardwareFlag,
+                boolean keyPresent, boolean keyHardwareBacked) {
+            this.configured = configured;
+            this.formatVersion = formatVersion;
+            this.iterations = iterations;
+            this.blobHardwareFlag = blobHardwareFlag;
+            this.keyPresent = keyPresent;
+            this.keyHardwareBacked = keyHardwareBacked;
+        }
+    }
+
+    /** Live Keystore check + stored-blob summary. BLOCKING (Keystore binder): call off the UI thread. */
+    public Diagnostics diagnose() {
+        ensureLoaded();
+        final Blob b = mBlob;
+        boolean present = false;
+        boolean hardware = false;
+        try {
+            final KeyStore ks = KeyStore.getInstance(ANDROID_KEYSTORE);
+            ks.load(null);
+            present = ks.containsAlias(KEY_ALIAS);
+            hardware = present && isKeyHardwareBacked();
+        } catch (Throwable t) {
+            // report what we know: key unverifiable
+        }
+        return new Diagnostics(b != null, FORMAT_VERSION, b == null ? 0 : b.iterations,
+                b != null && (b.flags & FLAG_TEE) != 0, present, hardware);
+    }
+
     // ---- GateCredential ----------------------------------------------------------------------
 
     @Override

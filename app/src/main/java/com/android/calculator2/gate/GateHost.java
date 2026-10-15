@@ -33,8 +33,8 @@ public interface GateHost {
     void clearDisplayQuietly();
 
     /**
-     * The gate matched. STEP-6 SEAM: clears the display and, later, launches the hidden view.
-     * For step 1 the host clears the display and emits a dev-only log line.
+     * The gate matched. The host clears the display, then unlocks the session and launches the
+     * hidden view (HiddenActivity). Must not log.
      */
     void openGate();
 

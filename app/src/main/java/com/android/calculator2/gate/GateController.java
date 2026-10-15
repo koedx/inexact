@@ -39,6 +39,14 @@ public final class GateController implements PinRecorder.Listener {
     private boolean mSetupActive;     // PIN-mode visuals currently shown
     private boolean mSetupPrompted;   // first instruction popup already shown this session
     private boolean mSetupEnded;      // recording finished (save/error): do not re-arm this session
+    private boolean mRerecording;     // authenticated PIN change in progress (hidden view -> here)
+
+    /**
+     * While PIN-setup mode is active, mark the window FLAG_SECURE: blank recents thumbnail, no
+     * screenshots. Costs: you cannot screenshot or screen-record the setup flow, and the recents
+     * card reads blank (a mild tell) until the Calculator is next resumed. Set false to disable.
+     */
+    public static final boolean SECURE_WINDOW_DURING_SETUP = true;
 
     /**
      * True iff the app is armed. The host checks this before constructing the controller, so the
@@ -55,6 +63,7 @@ public final class GateController implements PinRecorder.Listener {
         mHost = host;
         // STEP 2: device-bound PBKDF2 + hardware-backed Keystore credential (replaces the RAM stub).
         mCredential = new Pbkdf2KeystoreCredential(host.context().getApplicationContext());
+        GateSession.setCredential(mCredential);   // shared with the hidden view (no Activity held)
         mMatcher = new PinMatcher(host, mCredential);
         mRecorder = new PinRecorder(host, mCredential, this);
     }
@@ -69,6 +78,12 @@ public final class GateController implements PinRecorder.Listener {
      */
     public void onActivityResumed() {
         mCredential.warmUp();   // idempotent, background, no Keystore key is created by this
+
+        if (GateSession.consumeRerecord()) {   // hidden view asked for an authenticated PIN change
+            mRerecording = true;
+            mSetupEnded = false;
+            mSetupPrompted = false;
+        }
 
         if (mSetupEnded || !isSetupAllowed()) {
             return;
@@ -127,6 +142,18 @@ public final class GateController implements PinRecorder.Listener {
         if (wasRecording) {
             mHost.clearDisplayQuietly();
         }
+        if (mRerecording) {
+            endRerecord();   // a PIN change is one-shot: leaving the screen abandons it
+        }
+    }
+
+    /** Leave authenticated re-record mode and restore the normal look. */
+    private void endRerecord() {
+        mRerecording = false;
+        if (mSetupActive) {
+            mSetupActive = false;
+            mHost.setPinModeVisuals(false);
+        }
     }
 
     /** PinRecorder.Listener: a PIN was saved. End setup, restore the normal look, clear the marker. */
@@ -134,18 +161,22 @@ public final class GateController implements PinRecorder.Listener {
     public void onRecordingSaved() {
         mSetupEnded = true;
         mSetupActive = false;
+        mRerecording = false;
         mHost.setPinModeVisuals(false);
         // The credential is durably written (we are called from its save callback), so disarm now:
         // strip the sentinel so the install reads as unarmed (spec §4 "delete the marker on confirm").
-        ArmingMarker.clear(mHost.context());
+        // Skipped on a PIN change, where the marker is not set (clear() would rewrite the setting).
+        if (ArmingMarker.isSet(mHost.context())) {
+            ArmingMarker.clear(mHost.context());
+        }
     }
 
     /**
-     * First-run setup gate: armed marker present AND not yet configured. (Step 6's hidden view will
-     * also allow re-recording an already-configured PIN while authenticated; that is a separate seam,
-     * not wired here.)
+     * Setup gate: either first-run (armed marker present AND not yet configured) or an authenticated
+     * PIN change requested from the hidden view (no marker required).
      */
     private boolean isSetupAllowed() {
-        return ArmingMarker.isSet(mHost.context()) && !mCredential.isConfigured();
+        return mRerecording
+                || (ArmingMarker.isSet(mHost.context()) && !mCredential.isConfigured());
     }
 }

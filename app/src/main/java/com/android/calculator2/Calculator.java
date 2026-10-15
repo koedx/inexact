@@ -263,13 +263,23 @@ public class Calculator extends Activity
         }
         @Override public void openGate() {
             clearDisplayQuietly();                  // "clear the display when the hidden view opens"
-            // STEP-6 SEAM: launch the hidden view here. Deliberately no logging: a log line on the
-            // match path is a leak (step-3 review removed the step-1 test crutch).
+            // Unlock the one-shot token, then open the hidden admin view. Deliberately no logging:
+            // a log line on the match path is a leak (step-3 review).
+            com.android.calculator2.gate.GateSession.unlock();
+            startActivity(new Intent(Calculator.this,
+                    com.android.calculator2.gate.HiddenActivity.class));
         }
         @Override public void showRecordingText(CharSequence text) {
             mResultText.setText(text == null ? "" : text);   // §6 echo — unverified vs CalculatorResult
         }
         @Override public void setPinModeVisuals(boolean on) {
+            if (com.android.calculator2.gate.GateController.SECURE_WINDOW_DURING_SETUP) {
+                if (on) {
+                    getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+                } else {
+                    getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+                }
+            }
             final View advanced = findViewById(R.id.pad_advanced);
             if (advanced != null) {
                 advanced.setBackgroundColor(ContextCompat.getColor(Calculator.this,
