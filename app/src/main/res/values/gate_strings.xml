@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- InExact gate strings. Separate file so it merges with the stock strings without overwriting. -->
+<!-- InExact gate strings. Separate file so it merges with the stock strings without overwriting.
+     Modified: 2026-11-06 07:20:10 UTC -->
+
 <resources>
     <string name="gate_pin_label" translatable="false">PIN</string>
 
@@ -8,7 +10,7 @@
     <string name="gate_prompt_ops_title">Set Operator Sequence</string>
 
     <!-- Instruction prompts (explicit about valid input and the 3+3 minimums from the outset) -->
-    <string name="gate_prompt_digits">Enter your PIN using at least 3 whole digits 0–9 only — no decimal point, operators, or functions. Then press and hold =.</string>
+    <string name="gate_prompt_digits">Enter your PIN using at least 3 whole digits 0–9 only — no decimal point, operators, or functions. Then press and hold =. You will enter the whole PIN again afterwards to confirm it.</string>
     <string name="gate_prompt_ops">Enter your operator sequence using only + − × ÷ ^ — at least 3 (repeats are allowed, e.g. × × ÷ ÷). Then press and hold =.</string>
 
     <!-- Dialog dismiss buttons -->
@@ -20,8 +22,8 @@
     <string name="gate_err_min_digits">Your PIN needs at least 3 digits. Enter 3 or more whole digits (0–9), then press and hold =.</string>
     <string name="gate_err_ops_only">Only operators (+ − × ÷ ^) belong in the sequence. Press and hold = when the sequence is complete.</string>
     <string name="gate_err_min_ops">Your operator sequence needs at least 3 operators. Add more of + − × ÷ ^, then press and hold =.</string>
-    <string name="gate_err_mismatch">That didn\'t match your first entry. Enter the same digits and the same operator sequence both times.</string>
-    <string name="gate_err_save_failed">Couldn\'t save the PIN on this device. Press and hold = to try again.</string>
+    <string name="gate_err_mismatch">That didn\'t match your first entry. Start again from the beginning, and enter the same digits and the same operator sequence both times.</string>
+    <string name="gate_err_save_failed">Couldn\'t save the PIN on this device. Enter your PIN and press and hold = to try again.</string>
 
     <!-- Deprecated (step 2): the "no operators" case is now covered by gate_err_min_ops. Retained
          to avoid a build break in case it is referenced elsewhere; safe to delete once confirmed. -->

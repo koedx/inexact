@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Repeat-phase strings for the PIN confirmation step. New file so gate_strings.xml keeps its names.
+     Created: 2026-11-06 07:20:10 UTC
+     Modified: 2026-11-06 07:20:10 UTC -->
+
+<resources>
+    <string name="gate_prompt_repeat_title" translatable="false">Repeat your PIN</string>
+    <string name="gate_prompt_repeat" translatable="false">Enter the whole PIN again, the way you will every time: the digits, then the operators. Do not press or hold =. It saves when the last operator is entered. Press CLR to restart the repeat.</string>
+
+    <!-- Repeat errors (non-terminal; only the repeat restarts, the first entry is kept) -->
+    <string name="gate_err_repeat_digits" translatable="false">Enter the same whole digits first (0–9 only), then the operators. Do not press =.</string>
+    <string name="gate_err_repeat_min_digits" translatable="false">Enter the same digits as your first entry (at least 3), then the operators. Do not press =.</string>
+    <string name="gate_err_repeat_ops_only" translatable="false">After the digits, enter only the operators of your sequence (+ − × ÷ ^). Do not press =.</string>
+</resources>
