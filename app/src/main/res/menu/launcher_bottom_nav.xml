@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Footer navigation. Apps is the landing destination; Admin is shown only to an admin session
+  (toggled in LauncherActivity). (addendum 2026-11-06-01 §3.1)
+  Created:  2026-11-06 09:44:19 UTC
+  Modified: 2026-11-06 09:44:19 UTC
+-->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_apps"
+        android:icon="@drawable/ic_apps_24"
+        android:title="@string/launcher_nav_apps" />
+    <item
+        android:id="@+id/nav_admin"
+        android:icon="@drawable/ic_admin_24"
+        android:title="@string/launcher_nav_admin" />
+</menu>

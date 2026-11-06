@@ -1,6 +1,14 @@
 /*
  * Copyright (C) 2026 The Android Open Source Project / InExact fork
  *
+ * Purpose: admin dashboard destination — adb/developer toggles, Developer options shortcut, version,
+ *          Keystore diagnostic, Change PIN. Relocated verbatim in behaviour from HiddenActivity into
+ *          a fragment under the launcher's footer nav (spec addendum 2026-11-06-01 §3). The privileged
+ *          surface (WRITE_SECURE_SETTINGS via Settings.Global) is unchanged from the verified 0.3.x
+ *          HiddenActivity — this is a relocation, not new capability.
+ * Created:  2026-11-06 09:44:19 UTC
+ * Modified: 2026-11-06 09:44:19 UTC
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -14,12 +22,14 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.WindowManager;
 import android.widget.TextView;
 
-import androidx.appcompat.app.AppCompatActivity;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.fragment.app.Fragment;
 
 import com.android.calculator2.BuildConfig;
 import com.android.calculator2.R;
@@ -29,20 +39,12 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 
 /**
- * The hidden admin view (spec addendum 2026-10-14-01 §3; Material 3 UI per 2026-10-15-01).
- * Reached only through the gate: the manifest entry is non-exported with no intent-filter, and
- * onCreate additionally requires the one-shot unlock token set by the host's openGate(), so a stray
- * or restored launch finishes at once.
- *
- * Leak hygiene: FLAG_SECURE (no screenshots, blank recents card), no logging, nothing kept in the
- * saved-instance bundle, and it RE-LOCKS by finishing whenever it leaves the foreground. The project
- * name never appears in this UI (spec header).
- *
- * Scope (admin only; single credential until the multi-role step): adb toggles, a Developer options
- * shortcut, version, Keystore diagnostic, and Change PIN (returns to the Calculator in PIN-setup
- * mode).
+ * Admin-only (the launcher hides this destination for guests). Reuses the hidden view's layout and
+ * strings unchanged. Note: no onStop re-lock any more — the session persists until the lock action
+ * or process death (spec addendum 2026-11-06-01 §3.1). Change PIN ends the session before returning
+ * to the Calculator, so coming back requires re-auth.
  */
-public class HiddenActivity extends AppCompatActivity {
+public class AdminFragment extends Fragment {
 
     private static final String KEY_ADB = "adb_enabled";
     private static final String KEY_DEV = "development_settings_enabled";
@@ -54,22 +56,20 @@ public class HiddenActivity extends AppCompatActivity {
     private TextView mStatus;
     private TextView mKeyValue;
     private TextView mStoredValue;
-    private boolean mSyncing;   // true while setChecked() is driven by code, not the user
+    private boolean mSyncing;
+
+    @Nullable @Override
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
+            @Nullable Bundle savedInstanceState) {
+        return inflater.inflate(R.layout.activity_hidden, container, false);
+    }
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(null);   // never restore: a recreated hidden view re-locks
-        if (!GateSession.consumeUnlock() || GateSession.credential() == null) {
-            finish();
-            return;
-        }
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-        setContentView(R.layout.activity_hidden);
-
-        mStatus = findViewById(R.id.hidden_status);
+    public void onViewCreated(@NonNull View root, @Nullable Bundle savedInstanceState) {
+        mStatus = root.findViewById(R.id.hidden_status);
 
         // Debugging card.
-        final ViewGroup debugRows = findViewById(R.id.hidden_debug_rows);
+        final ViewGroup debugRows = root.findViewById(R.id.hidden_debug_rows);
         mAdbSwitch = addSwitchRow(debugRows, R.string.hidden_adb_title, R.string.hidden_adb_desc);
         mAdbSwitch.setOnCheckedChangeListener((button, checked) -> {
             if (mSyncing) return;
@@ -85,49 +85,34 @@ public class HiddenActivity extends AppCompatActivity {
             if (mSyncing) return;
             applySetting(KEY_DEV, checked);
         });
-        mOpenDev = findViewById(R.id.hidden_open_dev_button);
-        mOpenDevNote = findViewById(R.id.hidden_open_dev_note);
+        mOpenDev = root.findViewById(R.id.hidden_open_dev_button);
+        mOpenDevNote = root.findViewById(R.id.hidden_open_dev_note);
         mOpenDev.setOnClickListener(v -> openDeveloperOptions());
 
         // Credential card.
-        final ViewGroup credentialRows = findViewById(R.id.hidden_credential_rows);
+        final ViewGroup credentialRows = root.findViewById(R.id.hidden_credential_rows);
         mKeyValue = addInfoRow(credentialRows, R.string.hidden_key_title);
         getLayoutInflater().inflate(R.layout.hidden_divider, credentialRows, true);
         mStoredValue = addInfoRow(credentialRows, R.string.hidden_stored_title);
-        findViewById(R.id.hidden_change_pin).setOnClickListener(v -> {
+        root.findViewById(R.id.hidden_change_pin).setOnClickListener(v -> {
             GateSession.requestRerecord();
-            finish();   // back to the Calculator, which enters PIN-setup mode
+            GateSession.end();          // returning must re-auth
+            requireActivity().finish(); // back to the Calculator, which enters PIN-setup mode
         });
 
         // About card.
-        final ViewGroup aboutRows = findViewById(R.id.hidden_about_rows);
+        final ViewGroup aboutRows = root.findViewById(R.id.hidden_about_rows);
         addInfoRow(aboutRows, R.string.hidden_version_title).setText(getString(
                 R.string.hidden_version_fmt, BuildConfig.APP_VERSION, BuildConfig.REVISION_DATE));
     }
 
     @Override
-    protected void onResume() {
+    public void onResume() {
         super.onResume();
-        if (mAdbSwitch == null) {
-            return;   // finished in onCreate
-        }
+        if (mAdbSwitch == null) return;
         syncSwitches();
         bindDeveloperOptionsAction();
         loadKeystoreDiagnostic();
-    }
-
-    /** Re-lock: leaving the foreground (Home, screen off, another app) ends the session. */
-    @Override
-    protected void onStop() {
-        super.onStop();
-        finish();
-    }
-
-    /** Deliberately keeps nothing: drop whatever the framework just wrote. */
-    @Override
-    protected void onSaveInstanceState(Bundle outState) {
-        super.onSaveInstanceState(outState);
-        outState.clear();
     }
 
     // ---- row builders ------------------------------------------------------------------------
@@ -137,12 +122,11 @@ public class HiddenActivity extends AppCompatActivity {
         ((TextView) row.findViewById(R.id.hidden_row_title)).setText(titleRes);
         ((TextView) row.findViewById(R.id.hidden_row_desc)).setText(descRes);
         final MaterialSwitch sw = row.findViewById(R.id.hidden_row_switch);
-        row.setOnClickListener(v -> sw.toggle());   // the whole row is the touch target
+        row.setOnClickListener(v -> sw.toggle());
         parent.addView(row);
         return sw;
     }
 
-    /** Adds a title/value row and returns the value TextView. */
     private TextView addInfoRow(ViewGroup parent, int titleRes) {
         final View row = getLayoutInflater().inflate(R.layout.hidden_row_info, parent, false);
         ((TextView) row.findViewById(R.id.hidden_info_title)).setText(titleRes);
@@ -154,24 +138,26 @@ public class HiddenActivity extends AppCompatActivity {
 
     private void syncSwitches() {
         mSyncing = true;
-        mAdbSwitch.setChecked(Settings.Global.getInt(getContentResolver(), KEY_ADB, 0) == 1);
-        mDevSwitch.setChecked(Settings.Global.getInt(getContentResolver(), KEY_DEV, 0) == 1);
+        mAdbSwitch.setChecked(Settings.Global.getInt(
+                requireContext().getContentResolver(), KEY_ADB, 0) == 1);
+        mDevSwitch.setChecked(Settings.Global.getInt(
+                requireContext().getContentResolver(), KEY_DEV, 0) == 1);
         mSyncing = false;
     }
 
     private void applySetting(String key, boolean on) {
         boolean ok;
         try {
-            ok = Settings.Global.putInt(getContentResolver(), key, on ? 1 : 0);
+            ok = Settings.Global.putInt(requireContext().getContentResolver(), key, on ? 1 : 0);
         } catch (SecurityException e) {
             ok = false;
         }
         showStatus(ok ? 0 : R.string.hidden_change_failed);
-        syncSwitches();   // always show the real state
+        syncSwitches();
     }
 
     private void confirmAdbOff() {
-        new MaterialAlertDialogBuilder(this)
+        new MaterialAlertDialogBuilder(requireContext())
                 .setTitle(R.string.hidden_adb_off_title)
                 .setMessage(R.string.hidden_adb_off_message)
                 .setPositiveButton(R.string.hidden_adb_off_confirm,
@@ -196,14 +182,9 @@ public class HiddenActivity extends AppCompatActivity {
         return new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS);
     }
 
-    /**
-     * The Developer options screen lives inside com.android.settings, which the kiosk lockdown
-     * disables. An app cannot re-enable another package, so the shortcut only works while Settings
-     * is enabled; otherwise it is greyed out with the recovery hint (spec §9).
-     */
     private void bindDeveloperOptionsAction() {
-        final boolean available =
-                getPackageManager().resolveActivity(developerOptionsIntent(), 0) != null;
+        final boolean available = requireContext().getPackageManager()
+                .resolveActivity(developerOptionsIntent(), 0) != null;
         mOpenDev.setEnabled(available);
         mOpenDevNote.setText(available ? R.string.hidden_dev_open_desc
                                        : R.string.hidden_dev_open_unavailable);
@@ -213,7 +194,7 @@ public class HiddenActivity extends AppCompatActivity {
         try {
             startActivity(developerOptionsIntent());
         } catch (ActivityNotFoundException | SecurityException e) {
-            bindDeveloperOptionsAction();   // state changed under us: refresh the row
+            bindDeveloperOptionsAction();
         }
     }
 
@@ -224,8 +205,9 @@ public class HiddenActivity extends AppCompatActivity {
         mKeyValue.setText(R.string.hidden_key_checking);
         new Thread(() -> {
             final Pbkdf2KeystoreCredential.Diagnostics d = credential.diagnose();
-            runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) return;
+            if (!isAdded()) return;
+            requireActivity().runOnUiThread(() -> {
+                if (!isAdded()) return;
                 showDiagnostic(d);
             });
         }, "gate-diag").start();

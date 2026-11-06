@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Picker strings. translatable=false (English-only admin tool). The project name never appears.
+  Created:  2026-11-06 09:27:32 UTC
+  Modified: 2026-11-06 09:44:19 UTC
+-->
+<resources>
+    <string name="launcher_title" translatable="false">Apps</string>
+    <string name="launcher_search_hint" translatable="false">Search apps</string>
+    <string name="launcher_action_lock" translatable="false">Lock</string>
+    <string name="launcher_action_edit" translatable="false">Edit</string>
+    <string name="launcher_nav_apps" translatable="false">Apps</string>
+    <string name="launcher_nav_admin" translatable="false">Admin</string>
+    <string name="launcher_panel_all" translatable="false">All</string>
+    <string name="launcher_launch_failed" translatable="false">Couldn\'t open that app</string>
+</resources>

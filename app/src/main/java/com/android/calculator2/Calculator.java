@@ -263,11 +263,11 @@ public class Calculator extends Activity
         }
         @Override public void openGate() {
             clearDisplayQuietly();                  // "clear the display when the hidden view opens"
-            // Unlock the one-shot token, then open the hidden admin view. Deliberately no logging:
+            // Begin the session, then open the launcher. Deliberately no logging:
             // a log line on the match path is a leak (step-3 review).
-            com.android.calculator2.gate.GateSession.unlock();
+            com.android.calculator2.gate.GateSession.begin(true);
             startActivity(new Intent(Calculator.this,
-                    com.android.calculator2.gate.HiddenActivity.class));
+                    com.android.calculator2.gate.LauncherActivity.class));
         }
         @Override public void showRecordingText(CharSequence text) {
             mResultText.setText(text == null ? "" : text);   // §6 echo — unverified vs CalculatorResult
