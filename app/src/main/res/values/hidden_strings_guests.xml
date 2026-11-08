@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Guest-access strings for the admin surface. New file so hidden_strings.xml keeps its names.
+  English-only (admin tool), hence translatable="false". The project name never appears here.
+  Created:  2026-11-08 07:31:00 UTC
+  Modified: 2026-11-08 07:31:00 UTC
+-->
+<resources>
+    <string name="hidden_section_guests" translatable="false">Guest access</string>
+
+    <!-- Card note. States the prefix rule, which is what prevents one role's PIN from shadowing
+         another's: each role's PIN must begin with its own digit. -->
+    <string name="hidden_guests_note" translatable="false">Each role\'s PIN begins with its own digit — the admin PIN with 0, and each guest slot with the digit shown below. Only you can set or change a guest PIN; a guest cannot.</string>
+
+    <!-- Shown instead of the note when the admin PIN was set before role prefixes existed. Its
+         first digit cannot be checked (only its hash is stored), so guest slots stay disabled
+         until it is re-recorded with the 0 prefix. The existing PIN keeps working meanwhile. -->
+    <string name="hidden_guests_admin_legacy" translatable="false">Your admin PIN was set before role prefixes. It still works, but guest PINs stay unavailable until you change it to a PIN starting with 0 (use Change PIN above).</string>
+
+    <!-- Shown when the profile key is unusable, so names cannot be saved. Access is unaffected. -->
+    <string name="hidden_guests_names_unavailable" translatable="false">Profile names can\'t be saved on this tablet, so the default labels are shown. Guest PINs still work.</string>
+
+    <!-- Row status lines. %1$d is the slot\'s required first digit. -->
+    <string name="hidden_guest_status_set" translatable="false">PIN set · starts with %1$d</string>
+    <string name="hidden_guest_status_unset" translatable="false">No PIN · must start with %1$d</string>
+    <string name="hidden_guest_status_blocked" translatable="false">Unavailable · change the admin PIN first</string>
+
+    <!-- Row actions -->
+    <string name="hidden_guest_rename" translatable="false">Rename</string>
+    <string name="hidden_guest_reset" translatable="false">Reset PIN</string>
+
+    <!-- Remove confirmation (switch turned off) -->
+    <string name="hidden_guest_remove_title" translatable="false">Remove this guest PIN?</string>
+    <string name="hidden_guest_remove_message" translatable="false">The PIN stops working straight away. The profile name is kept, so turning this slot back on only needs a new PIN.</string>
+    <string name="hidden_guest_remove_confirm" translatable="false">Remove</string>
+
+    <!-- Add / reset: the PIN is recorded on the calculator pad, not here -->
+    <string name="hidden_guest_record_title" translatable="false">Set this guest\'s PIN</string>
+    <string name="hidden_guest_record_message" translatable="false">This returns to the calculator in PIN-setup mode. Enter the new PIN starting with %1$d, then repeat it. You stay signed in and come back here once it saves.</string>
+    <string name="hidden_guest_record_confirm" translatable="false">Continue</string>
+
+    <!-- Rename dialog -->
+    <string name="hidden_guest_name_title" translatable="false">Profile name</string>
+    <string name="hidden_guest_name_hint" translatable="false">Label, e.g. rental (stock)</string>
+    <string name="hidden_guest_name_save" translatable="false">Save</string>
+    <string name="hidden_guest_name_failed" translatable="false">That name could not be saved.</string>
+
+    <!-- Credential-card diagnostic additions -->
+    <string name="hidden_roles_title" translatable="false">Roles</string>
+    <string name="hidden_roles_fmt" translatable="false">Admin + %1$d of %2$d guest slots in use</string>
+</resources>

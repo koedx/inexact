@@ -1,8 +1,8 @@
 /*
  * Copyright (C) 2026 The Android Open Source Project / InExact fork
  *
- * Purpose: PIN recording / confirmation state machine (spec section 6).
- * Modified: 2026-11-06 07:20:10 UTC
+ * Purpose: PIN recording / confirmation state machine (spec v0.4 §6), now recording for one role.
+ * Modified: 2026-11-08 07:31:00 UTC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,8 +20,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 
 /**
- * Section 6 recording / confirmation state machine. Active only while armed and setup is allowed
- * (arming marker present and unconfigured, or an authenticated PIN change from the hidden view).
+ * Recording / confirmation state machine. Active only while setup is allowed: an armed, unconfigured
+ * install; an authenticated admin PIN change; or an admin setting a guest slot's PIN.
  *
  * FIRST ENTRY (delimited, because the digit and operator counts are not yet known):
  * [type digits] -> long-press '=' -> [press operators] -> long-press '='.
@@ -32,13 +32,15 @@ import java.util.Arrays;
  * reaches the count of the first entry (the same single-fire trigger the matcher uses). A match
  * saves; a mismatch is a non-terminal error that restarts recording from the first entry.
  *
- * Minimums (addendum §3): at least {@link #MIN_DIGITS} digits and {@link #MIN_OPS} operators.
+ * ROLE. Whichever role {@link #setTargetRole} names is the record that gets written, and the PIN is
+ * required to begin with that role's digit ({@link #MIN_DIGITS} digits in total). The controller
+ * sets the target before recording begins.
  *
  * Saving is ASYNC (PBKDF2 + Keystore off the UI thread). The machine enters {@link Phase#SAVING} and
  * ignores input until the credential's callback lands: success -> "Saved" + listener (controller
- * restores the normal look) + the controller clears the arming marker; failure -> non-terminal
- * error (guidance dialog, stays in PIN mode), so an armed app is never left configured-broken or
- * PIN-less.
+ * restores the normal look, clears the arming marker on a first run, and hands an admin back to the
+ * admin surface after a guest PIN); failure -> non-terminal error (guidance dialog, stays in PIN
+ * mode), so an armed app is never left configured-broken or PIN-less.
  *
  * PIN-mode appearance (red advanced pad, "PIN" label) is owned by GateController and is already on
  * when recording begins. Errors are NOT terminal (specific guidance, "Try again", reset, stay in PIN
@@ -46,8 +48,17 @@ import java.util.Arrays;
  */
 final class PinRecorder {
 
-    /** Minimums enforced at recording (addendum §3). */
-    private static final int MIN_DIGITS = 3;
+    /**
+     * Minimum digits for a NEWLY RECORDED PIN.
+     *
+     * One higher than the matcher's floor, deliberately. The first digit is now the role digit and
+     * so is publicly inferable from the app, and a fourth digit keeps three digits free — restoring
+     * what the prefix rule costs. The matcher does NOT share this value: raising its floor would
+     * make a shorter credential written by an older build unmatchable, i.e. lock the owner out.
+     */
+    static final int MIN_DIGITS = 4;
+
+    /** Minimum operators (addendum §3). */
     private static final int MIN_OPS = 3;
 
     /** Notified only when a credential is successfully saved. */
@@ -62,6 +73,8 @@ final class PinRecorder {
     private final Listener mListener;
 
     private Phase mPhase = Phase.IDLE;
+    /** The role whose record this recording will write. */
+    private int mTargetRole = GateCredential.ROLE_ADMIN;
     private String mDigits1;
     private final ArrayList<Integer> mOps1 = new ArrayList<>();
     /** Repeat digits; null until the first operator press of the repeat captures them. */
@@ -76,6 +89,18 @@ final class PinRecorder {
 
     boolean isRecording() {
         return mPhase != Phase.IDLE;
+    }
+
+    /** Set the role to record for. Ignored once recording is under way. */
+    void setTargetRole(int roleTag) {
+        if (mPhase == Phase.IDLE
+                && roleTag >= GateCredential.ROLE_ADMIN && roleTag <= GateCredential.MAX_GUESTS) {
+            mTargetRole = roleTag;
+        }
+    }
+
+    int targetRole() {
+        return mTargetRole;
     }
 
     /**
@@ -130,7 +155,7 @@ final class PinRecorder {
         if (KeyMaps.digVal(id) != KeyMaps.NOT_DIGIT) {
             if (mDigits2 != null) {
                 // A digit after the operators began: not the shape of the PIN.
-                repeatError(R.string.gate_err_repeat_ops_only);
+                repeatError(mHost.context().getString(R.string.gate_err_repeat_ops_only));
                 return true;
             }
             return false;   // digits flow normally onto the display
@@ -139,11 +164,11 @@ final class PinRecorder {
             if (mDigits2 == null) {
                 final String digits = mHost.evaluator().getMainWholeDigitsOrNull();
                 if (digits == null) {
-                    repeatError(R.string.gate_err_repeat_digits);
+                    repeatError(mHost.context().getString(R.string.gate_err_repeat_digits));
                     return true;
                 }
                 if (digits.length() < MIN_DIGITS) {
-                    repeatError(R.string.gate_err_repeat_min_digits);
+                    repeatError(text(R.string.gate_err_repeat_min_digits_role, MIN_DIGITS));
                     return true;
                 }
                 mDigits2 = digits;
@@ -160,7 +185,8 @@ final class PinRecorder {
             return true;   // swallow a short '='; nothing in the repeat uses it
         }
         repeatError(mDigits2 == null
-                ? R.string.gate_err_repeat_digits : R.string.gate_err_repeat_ops_only);
+                ? mHost.context().getString(R.string.gate_err_repeat_digits)
+                : mHost.context().getString(R.string.gate_err_repeat_ops_only));
         return true;
     }
 
@@ -168,9 +194,9 @@ final class PinRecorder {
      * Invalid key during the repeat: restart only the repeat (the first entry is kept) and show
      * repeat-specific guidance. Non-terminal, like {@link #error}.
      */
-    private void repeatError(int messageRes) {
+    private void repeatError(CharSequence message) {
         restartRepeat();
-        mHost.showGateDialog(R.string.gate_prompt_repeat_title, messageRes, R.string.gate_try_again);
+        mHost.showGateDialog(R.string.gate_prompt_repeat_title, message, R.string.gate_try_again);
     }
 
     /**
@@ -189,7 +215,13 @@ final class PinRecorder {
                     return true;
                 }
                 if (digits.length() < MIN_DIGITS) {
-                    error(R.string.gate_prompt_title, R.string.gate_err_min_digits);
+                    errorText(R.string.gate_prompt_title,
+                            text(R.string.gate_err_min_digits_role, MIN_DIGITS, mTargetRole));
+                    return true;
+                }
+                if (!Pbkdf2KeystoreCredential.hasRolePrefix(mTargetRole, digits)) {
+                    errorText(R.string.gate_prompt_title,
+                            text(R.string.gate_err_prefix_role, mTargetRole));
                     return true;
                 }
                 mDigits1 = digits;
@@ -235,8 +267,10 @@ final class PinRecorder {
         // Capture before the async hop; then persist off the UI thread.
         final String digits = mDigits1;
         final int[] ops = toIntArray(mOps1);
+        final int role = mTargetRole;
         mPhase = Phase.SAVING;
-        mCredential.save(digits, ops, new GateCredential.ResultCallback() {
+        // Profile ids currently equal role tags.
+        mCredential.save(role, role, digits, ops, new GateCredential.ResultCallback() {
             @Override
             public void onResult(boolean success) {
                 if (success) {
@@ -285,12 +319,27 @@ final class PinRecorder {
         mHost.showGateDialog(titleRes, messageRes, R.string.gate_try_again);
     }
 
+    /** As {@link #error}, with an already-formatted message. */
+    private void errorText(int titleRes, CharSequence message) {
+        resetState();
+        mHost.clearDisplayQuietly();
+        mHost.showGateDialog(titleRes, message, R.string.gate_try_again);
+    }
+
+    /**
+     * Reset the attempt state. The target role is deliberately NOT reset: a non-terminal error must
+     * leave the recorder still aimed at the same role so the retry writes the intended record.
+     */
     private void resetState() {
         mPhase = Phase.IDLE;
         mDigits1 = null;
         mDigits2 = null;
         mOps1.clear();
         mOps2.clear();
+    }
+
+    private CharSequence text(int res, Object... args) {
+        return mHost.context().getString(res, args);
     }
 
     private void echoOps(ArrayList<Integer> ops) {

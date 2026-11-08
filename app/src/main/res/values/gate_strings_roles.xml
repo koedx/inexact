@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Role-aware recording strings. New file so gate_strings.xml and gate_strings_repeat.xml keep their
+  names. These carry format arguments because the required first digit depends on the role being
+  recorded. translatable="false" (admin tool); the project name never appears.
+  Created:  2026-11-08 07:31:00 UTC
+  Modified: 2026-11-08 07:31:00 UTC
+-->
+<resources>
+    <!-- Opening instruction. %1$d is the role's required first digit, %2$d the digit minimum. -->
+    <string name="gate_prompt_digits_role" translatable="false">Enter this PIN starting with the digit %1$d, using at least %2$d whole digits 0–9 only — no decimal point, operators, or functions. Then press and hold =. You will enter the whole PIN again afterwards to confirm it.</string>
+
+    <!-- Too few digits. %1$d is the minimum, %2$d the required first digit. -->
+    <string name="gate_err_min_digits_role" translatable="false">This PIN needs at least %1$d digits. Enter %1$d or more whole digits (0–9) starting with %2$d, then press and hold =.</string>
+
+    <!-- Wrong leading digit. %1$d is the required first digit. Each role's PIN begins with its own
+         digit, which is what keeps one role's PIN from masking another's. -->
+    <string name="gate_err_prefix_role" translatable="false">This PIN must start with the digit %1$d. Each role uses its own first digit, so no two PINs can overlap. Enter it starting with %1$d, then press and hold =.</string>
+
+    <!-- Repeat phase, too few digits. %1$d is the minimum. -->
+    <string name="gate_err_repeat_min_digits_role" translatable="false">Enter the same digits as your first entry (at least %1$d), then the operators. Do not press =.</string>
+</resources>

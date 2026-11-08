@@ -50,7 +50,8 @@ public class ProvisionActivity extends Activity {
     private static final String EXTRA_DIGITS = "cfg_a";
     private static final String EXTRA_OPS    = "cfg_b";
 
-    private static final int MIN_DIGITS = 3;   // match PinRecorder (addendum §3)
+    /** Taken from the recorder so the scripted and on-pad paths can never disagree. */
+    private static final int MIN_DIGITS = PinRecorder.MIN_DIGITS;
     private static final int MIN_OPS    = 3;
 
     @Override
@@ -71,8 +72,11 @@ public class ProvisionActivity extends Activity {
             return;
         }
 
-        // cfg_a must be pure decimal digits (match what the matcher reads from the display).
-        if (!isAllDigits(digits) || digits.length() < MIN_DIGITS) {
+        // cfg_a must be pure decimal digits (match what the matcher reads from the display) and,
+        // like every PIN, must begin with its role's digit. This entry point provisions the ADMIN
+        // record only, so that digit is 0; guest PINs are set exclusively from the admin surface.
+        if (!isAllDigits(digits) || digits.length() < MIN_DIGITS
+                || !Pbkdf2KeystoreCredential.hasRolePrefix(GateCredential.ROLE_ADMIN, digits)) {
             finish();
             return;
         }
@@ -85,7 +89,8 @@ public class ProvisionActivity extends Activity {
 
         // Save asynchronously; the activity stays alive until the callback (it has no UI of its own).
         final GateCredential credential = new Pbkdf2KeystoreCredential(getApplicationContext());
-        credential.save(digits, opIds, new GateCredential.ResultCallback() {
+        credential.save(GateCredential.ROLE_ADMIN, GateCredential.ROLE_ADMIN, digits, opIds,
+                new GateCredential.ResultCallback() {
             @Override
             public void onResult(boolean ok) {
                 if (ok) {

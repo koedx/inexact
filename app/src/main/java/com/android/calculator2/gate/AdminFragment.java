@@ -2,12 +2,9 @@
  * Copyright (C) 2026 The Android Open Source Project / InExact fork
  *
  * Purpose: admin dashboard destination — adb/developer toggles, Developer options shortcut, version,
- *          Keystore diagnostic, Change PIN. Relocated verbatim in behaviour from HiddenActivity into
- *          a fragment under the launcher's footer nav (spec addendum 2026-11-06-01 §3). The privileged
- *          surface (WRITE_SECURE_SETTINGS via Settings.Global) is unchanged from the verified 0.3.x
- *          HiddenActivity — this is a relocation, not new capability.
+ *          Keystore diagnostic, Change PIN, and guest-slot management (blob v2 roles).
  * Created:  2026-11-06 09:44:19 UTC
- * Modified: 2026-11-06 09:44:19 UTC
+ * Modified: 2026-11-08 07:31:00 UTC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +22,7 @@ import android.provider.Settings;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -38,16 +36,34 @@ import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 
+import java.util.Collections;
+import java.util.Map;
+
 /**
- * Admin-only (the launcher hides this destination for guests). Reuses the hidden view's layout and
- * strings unchanged. Note: no onStop re-lock any more — the session persists until the lock action
- * or process death (spec addendum 2026-11-06-01 §3.1). Change PIN ends the session before returning
- * to the Calculator, so coming back requires re-auth.
+ * Admin-only (the launcher hides this destination for guests). Note: no onStop re-lock any more —
+ * the session persists until the lock action or process death (spec addendum 2026-11-06-01 §3.1).
+ * Change PIN ends the session before returning to the Calculator, so coming back requires re-auth.
+ *
+ * GUEST SLOTS. All {@link GateCredential#MAX_GUESTS} slots are always listed. The switch IS the
+ * action: on adds a PIN (handing off to the calculator pad, which is the only place a PIN is ever
+ * entered), off removes that role's credential record after confirmation. A slot's profile name
+ * survives removal, so re-enabling it needs only a new PIN. Only the admin can set or change a guest
+ * PIN; nothing here lets a guest do so, and the scripted provisioning path refuses guest roles
+ * outright.
+ *
+ * Guest slots are disabled entirely while the admin record predates the role-prefix rule: its first
+ * digit cannot be read back from a hash, so it might collide with a guest's and mask it. Re-recording
+ * the admin PIN with its 0 prefix clears that state.
+ *
+ * Everything here that touches the Keystore, the blob or the profile file is blocking, so state is
+ * loaded on a background thread and bound on the UI thread.
  */
 public class AdminFragment extends Fragment {
 
     private static final String KEY_ADB = "adb_enabled";
     private static final String KEY_DEV = "development_settings_enabled";
+
+    private static final int SLOTS = 1 + GateCredential.MAX_GUESTS;
 
     private MaterialSwitch mAdbSwitch;
     private MaterialSwitch mDevSwitch;
@@ -56,7 +72,40 @@ public class AdminFragment extends Fragment {
     private TextView mStatus;
     private TextView mKeyValue;
     private TextView mStoredValue;
+    private TextView mRolesValue;
     private boolean mSyncing;
+
+    // Guest rows, indexed by role tag (index 0 unused: the admin has no slot row).
+    private final TextView[] mGuestName = new TextView[SLOTS];
+    private final TextView[] mGuestStatus = new TextView[SLOTS];
+    private final MaterialSwitch[] mGuestSwitch = new MaterialSwitch[SLOTS];
+    private final MaterialButton[] mGuestRename = new MaterialButton[SLOTS];
+    private final MaterialButton[] mGuestReset = new MaterialButton[SLOTS];
+    private TextView mGuestsNote;
+
+    private ProfileStore mProfiles;
+    private State mState;
+
+    /** One background load: credential diagnostics, per-slot record presence, and profile names. */
+    private static final class State {
+        final Pbkdf2KeystoreCredential.Diagnostics diag;
+        final boolean namesAvailable;
+        final Map<Integer, String> names;
+        final boolean[] hasRecord;
+
+        State(Pbkdf2KeystoreCredential.Diagnostics diag, boolean namesAvailable,
+                Map<Integer, String> names, boolean[] hasRecord) {
+            this.diag = diag;
+            this.namesAvailable = namesAvailable;
+            this.names = names;
+            this.hasRecord = hasRecord;
+        }
+
+        /** True while the admin record cannot be routed on, which blocks every guest slot. */
+        boolean guestsBlocked() {
+            return diag.configured && !diag.adminPrefixEnforced;
+        }
+    }
 
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -66,6 +115,7 @@ public class AdminFragment extends Fragment {
 
     @Override
     public void onViewCreated(@NonNull View root, @Nullable Bundle savedInstanceState) {
+        mProfiles = new ProfileStore(requireContext());
         mStatus = root.findViewById(R.id.hidden_status);
 
         // Debugging card.
@@ -94,11 +144,17 @@ public class AdminFragment extends Fragment {
         mKeyValue = addInfoRow(credentialRows, R.string.hidden_key_title);
         getLayoutInflater().inflate(R.layout.hidden_divider, credentialRows, true);
         mStoredValue = addInfoRow(credentialRows, R.string.hidden_stored_title);
+        getLayoutInflater().inflate(R.layout.hidden_divider, credentialRows, true);
+        mRolesValue = addInfoRow(credentialRows, R.string.hidden_roles_title);
         root.findViewById(R.id.hidden_change_pin).setOnClickListener(v -> {
             GateSession.requestRerecord();
             GateSession.end();          // returning must re-auth
             requireActivity().finish(); // back to the Calculator, which enters PIN-setup mode
         });
+
+        // Guest access card.
+        mGuestsNote = root.findViewById(R.id.hidden_guests_note);
+        addGuestRows(root.findViewById(R.id.hidden_guest_rows));
 
         // About card.
         final ViewGroup aboutRows = root.findViewById(R.id.hidden_about_rows);
@@ -112,7 +168,7 @@ public class AdminFragment extends Fragment {
         if (mAdbSwitch == null) return;
         syncSwitches();
         bindDeveloperOptionsAction();
-        loadKeystoreDiagnostic();
+        reload();
     }
 
     // ---- row builders ------------------------------------------------------------------------
@@ -132,6 +188,34 @@ public class AdminFragment extends Fragment {
         ((TextView) row.findViewById(R.id.hidden_info_title)).setText(titleRes);
         parent.addView(row);
         return row.findViewById(R.id.hidden_info_value);
+    }
+
+    /** One row per guest slot, always all of them, so an unused slot is visibly available. */
+    private void addGuestRows(ViewGroup parent) {
+        for (int role = 1; role <= GateCredential.MAX_GUESTS; role++) {
+            final int slot = role;
+            if (slot > 1) {
+                getLayoutInflater().inflate(R.layout.hidden_divider, parent, true);
+            }
+            final View row = getLayoutInflater().inflate(R.layout.hidden_row_guest, parent, false);
+            mGuestName[slot] = row.findViewById(R.id.hidden_guest_name);
+            mGuestStatus[slot] = row.findViewById(R.id.hidden_guest_status);
+            mGuestSwitch[slot] = row.findViewById(R.id.hidden_guest_switch);
+            mGuestRename[slot] = row.findViewById(R.id.hidden_guest_rename);
+            mGuestReset[slot] = row.findViewById(R.id.hidden_guest_reset);
+
+            mGuestSwitch[slot].setOnCheckedChangeListener((button, checked) -> {
+                if (mSyncing) return;
+                if (checked) {
+                    confirmRecordPin(slot);
+                } else {
+                    confirmRemove(slot);
+                }
+            });
+            mGuestRename[slot].setOnClickListener(v -> promptRename(slot));
+            mGuestReset[slot].setOnClickListener(v -> confirmRecordPin(slot));
+            parent.addView(row);
+        }
     }
 
     // ---- adb / developer toggles -------------------------------------------------------------
@@ -198,17 +282,100 @@ public class AdminFragment extends Fragment {
         }
     }
 
-    // ---- Keystore diagnostic -----------------------------------------------------------------
+    // ---- guest slots -------------------------------------------------------------------------
 
-    private void loadKeystoreDiagnostic() {
+    /**
+     * Adding or resetting a guest PIN hands off to the calculator pad — the only surface where a PIN
+     * is ever entered. The admin session stays open, so the pad hands straight back here on save.
+     */
+    private void confirmRecordPin(final int role) {
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.hidden_guest_record_title)
+                .setMessage(getString(R.string.hidden_guest_record_message, role))
+                .setPositiveButton(R.string.hidden_guest_record_confirm, (dialog, which) -> {
+                    GateSession.requestGuestRecord(role);
+                    requireActivity().finish();   // session deliberately NOT ended
+                })
+                .setNegativeButton(R.string.hidden_cancel, (dialog, which) -> bindGuests())
+                .setOnCancelListener(dialog -> bindGuests())
+                .show();
+    }
+
+    private void confirmRemove(final int role) {
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.hidden_guest_remove_title)
+                .setMessage(R.string.hidden_guest_remove_message)
+                .setPositiveButton(R.string.hidden_guest_remove_confirm,
+                        (dialog, which) -> removeRole(role))
+                .setNegativeButton(R.string.hidden_cancel, (dialog, which) -> bindGuests())
+                .setOnCancelListener(dialog -> bindGuests())
+                .show();
+    }
+
+    private void removeRole(int role) {
         final Pbkdf2KeystoreCredential credential = GateSession.credential();
-        mKeyValue.setText(R.string.hidden_key_checking);
+        if (credential == null) {
+            showStatus(R.string.hidden_change_failed);
+            bindGuests();
+            return;
+        }
+        credential.removeRole(role, ok -> {      // callback already lands on the UI thread
+            if (!isAdded()) return;
+            if (!ok) showStatus(R.string.hidden_change_failed);
+            reload();
+        });
+    }
+
+    private void promptRename(final int role) {
+        final View body = getLayoutInflater().inflate(R.layout.dialog_guest_name, null);
+        final EditText input = body.findViewById(R.id.hidden_guest_name_input);
+        final String current = (mState == null) ? null : mState.names.get(role);
+        input.setText(current == null ? "" : current);
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.hidden_guest_name_title)
+                .setView(body)
+                .setPositiveButton(R.string.hidden_guest_name_save,
+                        (dialog, which) -> saveName(role, input.getText().toString()))
+                .setNegativeButton(R.string.hidden_cancel, null)
+                .show();
+    }
+
+    private void saveName(final int role, final String name) {
+        final ProfileStore store = mProfiles;
         new Thread(() -> {
-            final Pbkdf2KeystoreCredential.Diagnostics d = credential.diagnose();
+            final boolean ok = store.setName(role, name);
             if (!isAdded()) return;
             requireActivity().runOnUiThread(() -> {
                 if (!isAdded()) return;
+                if (!ok) showStatus(R.string.hidden_guest_name_failed);
+                reload();
+            });
+        }, "gate-profile").start();
+    }
+
+    // ---- state load / bind -------------------------------------------------------------------
+
+    /** Live Keystore + blob + profile read, off the UI thread, then bound in one pass. */
+    private void reload() {
+        final Pbkdf2KeystoreCredential credential = GateSession.credential();
+        if (credential == null) return;
+        final ProfileStore store = mProfiles;
+        mKeyValue.setText(R.string.hidden_key_checking);
+        new Thread(() -> {
+            final Pbkdf2KeystoreCredential.Diagnostics d = credential.diagnose();
+            final boolean namesOk = store.encryptionAvailable();
+            final Map<Integer, String> names = store.names();
+            final boolean[] has = new boolean[SLOTS];
+            for (int role = 1; role <= GateCredential.MAX_GUESTS; role++) {
+                has[role] = credential.hasRole(role);
+            }
+            final State next = new State(d, namesOk, names, has);
+            if (!isAdded()) return;
+            requireActivity().runOnUiThread(() -> {
+                if (!isAdded()) return;
+                mState = next;
                 showDiagnostic(d);
+                bindGuests();
             });
         }, "gate-diag").start();
     }
@@ -226,5 +393,39 @@ public class AdminFragment extends Fragment {
                         getString(d.blobHardwareFlag ? R.string.hidden_flag_set
                                                      : R.string.hidden_flag_clear))
                 : getString(R.string.hidden_stored_none));
+
+        mRolesValue.setText(getString(R.string.hidden_roles_fmt, d.guestCount, d.maxGuests));
+    }
+
+    private void bindGuests() {
+        final State st = mState;
+        final boolean blocked = st != null && st.guestsBlocked();
+        final boolean namesOk = st == null || st.namesAvailable;
+        final Map<Integer, String> names =
+                (st == null) ? Collections.<Integer, String>emptyMap() : st.names;
+
+        mSyncing = true;
+        for (int role = 1; role <= GateCredential.MAX_GUESTS; role++) {
+            final String stored = names.get(role);
+            mGuestName[role].setText((stored == null || stored.isEmpty())
+                    ? ProfileStore.defaultName(role) : stored);
+
+            final boolean has = st != null && st.hasRecord[role];
+            mGuestSwitch[role].setChecked(has);
+            mGuestSwitch[role].setEnabled(!blocked);
+            mGuestRename[role].setEnabled(namesOk);
+            // Reset only makes sense once a PIN exists; otherwise the switch is how you add one.
+            mGuestReset[role].setEnabled(!blocked && has);
+
+            mGuestStatus[role].setText(blocked
+                    ? getString(R.string.hidden_guest_status_blocked)
+                    : has ? getString(R.string.hidden_guest_status_set, role)
+                          : getString(R.string.hidden_guest_status_unset, role));
+        }
+        mSyncing = false;
+
+        mGuestsNote.setText(blocked ? getString(R.string.hidden_guests_admin_legacy)
+                : !namesOk ? getString(R.string.hidden_guests_names_unavailable)
+                           : getString(R.string.hidden_guests_note));
     }
 }

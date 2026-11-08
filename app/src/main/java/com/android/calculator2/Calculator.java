@@ -261,11 +261,11 @@ public class Calculator extends Activity
             redisplayFormula();
             mResultText.clear();
         }
-        @Override public void openGate() {
+        @Override public void openGate(int roleTag, int profileId) {
             clearDisplayQuietly();                  // "clear the display when the hidden view opens"
-            // Begin the session, then open the launcher. Deliberately no logging:
-            // a log line on the match path is a leak (step-3 review).
-            com.android.calculator2.gate.GateSession.begin(true);
+            // Begin the session for the matched role, then open the launcher. Deliberately no
+            // logging: a log line on the match path is a leak (step-3 review).
+            com.android.calculator2.gate.GateSession.begin(roleTag, profileId);
             startActivity(new Intent(Calculator.this,
                     com.android.calculator2.gate.LauncherActivity.class));
         }
@@ -305,6 +305,10 @@ public class Calculator extends Activity
         @Override public void showGateDialog(int titleRes, int messageRes, int buttonRes) {
             AlertDialogFragment.showMessageDialog(Calculator.this, getString(titleRes),
                     getString(messageRes), getString(buttonRes), GATE_DIALOG_TAG);
+        }
+        @Override public void showGateDialog(int titleRes, CharSequence message, int buttonRes) {
+            AlertDialogFragment.showMessageDialog(Calculator.this, getString(titleRes),
+                    message == null ? "" : message, getString(buttonRes), GATE_DIALOG_TAG);
         }
     };
 

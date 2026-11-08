@@ -33,10 +33,14 @@ public interface GateHost {
     void clearDisplayQuietly();
 
     /**
-     * The gate matched. The host clears the display, then unlocks the session and launches the
-     * hidden view (HiddenActivity). Must not log.
+     * The gate matched for one role. The host clears the display, then begins the session for that
+     * role and launches the launcher. Must not log — a log line on the match path is a leak.
+     *
+     * @param roleTag   the matched role ({@link GateCredential#ROLE_ADMIN} or a guest slot), which
+     *                  decides whether the admin surface is reachable
+     * @param profileId the profile that role maps to
      */
-    void openGate();
+    void openGate(int roleTag, int profileId);
 
     /**
      * Section 6 recording: show text (operator glyphs, or "Repeat"/"Saved"/error) in the result
@@ -63,4 +67,10 @@ public interface GateHost {
      * ("Try again"); dismissing takes no action beyond closing the dialog.
      */
     void showGateDialog(int titleRes, int messageRes, int buttonRes);
+
+    /**
+     * As {@link #showGateDialog(int, int, int)}, but with an already-formatted message. Used where
+     * the guidance depends on which role is being recorded (e.g. the digit its PIN must start with).
+     */
+    void showGateDialog(int titleRes, CharSequence message, int buttonRes);
 }

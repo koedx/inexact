@@ -1,6 +1,9 @@
 /*
  * Copyright (C) 2026 The Android Open Source Project / InExact fork
  *
+ * Purpose: passive detection of a credential entry on the calculator pad (spec v0.4 §5).
+ * Modified: 2026-11-08 07:31:00 UTC
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -15,25 +18,35 @@ import com.android.calculator2.KeyMaps;
 import java.util.ArrayList;
 
 /**
- * Passive observer of raw key presses that detects the credential (spec section 5): a whole-number
- * display of at least {@link #MIN_DIGITS} digits at the first operator, then a run of operators whose
- * length equals the stored sequence length.
+ * Passive observer of raw key presses that detects a credential: a whole-number display of at least
+ * {@link #MIN_DIGITS} digits at the first operator, then a run of operators whose length equals the
+ * length stored for the role that the display's first digit identifies.
  *
  * Observe-only. Every press returns to the normal calculator path, so a wrong attempt is
- * indistinguishable from ordinary use (no error, no vibration, no delay). A correct match is confirmed
- * asynchronously by the credential and opens the gate from the callback, so the key handler never
- * blocks.
+ * indistinguishable from ordinary use (no error, no vibration, no delay). A correct match is
+ * confirmed asynchronously by the credential and opens the gate from the callback, so the key
+ * handler never blocks.
  *
- * Step-2 change: a hashed, device-bound verifier cannot be compared press-by-press. The matcher
- * assembles a complete candidate and fires {@code test()} ONCE, when the operator run reaches the
- * stored length — not on every press (which under PBKDF2 would mean many derivations per attempt).
- * A run of >= MIN_DIGITS operators consecutively after a >= MIN_DIGITS-digit whole number is a
- * near-never event in ordinary use, so op-length alone is a sufficient single-fire trigger and no
- * digit length is stored.
+ * SINGLE FIRE, VIA ROLE ROUTING. A hashed, device-bound verifier cannot be compared press-by-press,
+ * so the matcher assembles a complete candidate and asks the credential, once per operator press,
+ * whether anything should be tested: {@link GateCredential#roleFor} answers with a role only when
+ * the first digit identifies a role that has a record AND the run has reached exactly that record's
+ * stored length. Because each role's PIN begins with its own digit, that is at most one record per
+ * attempt — one derivation, whatever the number of roles — and pressing past the length does not
+ * re-fire. Ordinary arithmetic whose first digit matches no role costs no derivation at all.
  */
 final class PinMatcher {
 
-    /** Minimum display digits before an operator run can be a PIN attempt (addendum §3). */
+    /**
+     * Minimum display digits before an operator run can be a PIN attempt.
+     *
+     * This is the MATCHING floor, and it must never exceed the smallest digit count any stored
+     * credential could have — raising it would make an existing shorter PIN unmatchable, i.e. lock
+     * the owner out. It therefore stays at the original 3 even though new PINs are now required to
+     * be longer; that higher minimum is enforced by the recorder, at the point where the plaintext
+     * is in hand. Keeping this low is cheap: role routing, not this guard, is what stops ordinary
+     * arithmetic from costing derivations.
+     */
     private static final int MIN_DIGITS = 3;
 
     private final GateHost mHost;
@@ -69,10 +82,9 @@ final class PinMatcher {
                 mOps.clear();
             }
             mOps.add(id);
-            // Single fire: only when the run reaches the stored length (==, not >=, so pressing past
-            // the length does not re-fire).
-            if (mOps.size() == mCredential.configuredOpLen()) {
-                fireTest();
+            final int role = mCredential.roleFor(mDigits, mOps.size());
+            if (role >= 0) {
+                fireTest(role);
             }
             return;
         }
@@ -89,17 +101,19 @@ final class PinMatcher {
         reset();
     }
 
-    private void fireTest() {
+    private void fireTest(final int role) {
         final int generation = mGeneration;
         final int[] ops = toIntArray(mOps);
-        mCredential.test(mDigits, ops, new GateCredential.ResultCallback() {
+        mCredential.test(role, mDigits, ops, new GateCredential.ResultCallback() {
             @Override
             public void onResult(boolean match) {
                 // Ignore a result for an attempt that was abandoned (Clear, etc.) after the test
                 // was dispatched.
                 if (match && generation == mGeneration) {
                     reset();
-                    mHost.openGate();
+                    // Profile ids currently equal role tags; when profiles diverge from roles the
+                    // record's stored profileId becomes the authoritative value to pass here.
+                    mHost.openGate(role, role);
                 }
             }
         });

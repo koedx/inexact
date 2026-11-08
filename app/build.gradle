@@ -3,8 +3,8 @@ apply plugin: 'com.android.application'
 // --- Version constants (kept as two separate values per project convention) ---
 // APP_VERSION is semantic; REVISION_DATE is an ISO date. Both are surfaced as
 // BuildConfig fields so a single edit here propagates to code and the APK.
-def appVersion = "0.3.1"
-def revisionDate = "2026-10-15"
+def appVersion = "0.4.0"
+def revisionDate = "2026-11-08"
 
 android {
     lint {
@@ -23,7 +23,7 @@ android {
         applicationId 'com.android.calculator'
         minSdk 29
         targetSdk 29
-        versionCode 7
+        versionCode 8
         versionName appVersion
 
         buildConfigField "String", "APP_VERSION", "\"${appVersion}\""
