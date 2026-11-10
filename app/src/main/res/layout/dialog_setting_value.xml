@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Body of the dialog that takes a free text custom value for one setting.
+  Created:  2026-11-10 09:00:00 UTC
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingStart="24dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="24dp">
+
+    <EditText
+        android:id="@+id/settings_value_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:importantForAutofill="no"
+        android:inputType="textNoSuggestions|textVisiblePassword"
+        android:maxLength="512"
+        android:singleLine="true" />
+</FrameLayout>

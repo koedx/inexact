@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Settings catalog and drift view (spec addendum 2026-11-09-01, slice 1: read only). A summary card,
-  then one settings_section per catalog section, added at runtime.
+  Settings catalog. A summary card with the Stock and Custom switch, then one settings_section per
+  catalog section, added at runtime.
   Created:  2026-11-10 06:00:00 UTC
-  Modified: 2026-11-10 06:00:00 UTC
+  Modified: 2026-11-10 09:00:00 UTC
 -->
 <androidx.core.widget.NestedScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -51,11 +51,35 @@
                     android:textAppearance="?attr/textAppearanceBodyMedium"
                     android:textColor="?attr/colorOnSurfaceVariant" />
 
+                <!-- Stock or Custom: which set of values the tablet should hold right now. -->
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/settings_mode_group"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    app:selectionRequired="true"
+                    app:singleSelection="true">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/settings_mode_stock"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_mode_stock" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/settings_mode_custom"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_mode_custom" />
+                </com.google.android.material.button.MaterialButtonToggleGroup>
+
                 <TextView
+                    android:id="@+id/settings_mode_note"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="@string/settings_read_only_note"
                     android:textAppearance="?attr/textAppearanceBodySmall"
                     android:textColor="?attr/colorOnSurfaceVariant" />
             </LinearLayout>

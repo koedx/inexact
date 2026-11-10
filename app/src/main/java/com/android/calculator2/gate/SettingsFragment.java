@@ -1,10 +1,10 @@
 /*
  * Copyright (C) 2026 The Android Open Source Project / InExact fork
  *
- * Purpose: settings catalog and drift view. Slice 1 of the dashboard settings feature: read and
- *          compare only (spec addendum 2026-11-09-01 §13).
+ * Purpose: the settings catalog view: what each tracked setting holds, the Stock and Custom switch,
+ *          a custom value per setting, and a fix for settings that have drifted.
  * Created:  2026-11-10 06:00:00 UTC
- * Modified: 2026-11-10 06:00:00 UTC
+ * Modified: 2026-11-10 09:00:00 UTC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,12 @@
 
 package com.android.calculator2.gate;
 
-import android.content.ContentResolver;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -29,47 +28,77 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 
 import com.android.calculator2.R;
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.button.MaterialButtonToggleGroup;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.ArrayList;
 
 /**
- * Shows every catalog entry with its current value and flags the ones that do not match stock.
+ * Shows every catalog entry with its current value and flags the ones that do not hold what is
+ * expected of them. "Expected" is stock, or the signed-in role's custom value for an entry while
+ * Custom is in use.
  *
- * READ ONLY. This slice reads settings and compares them; it writes nothing, so it cannot change
- * the tablet's state and needs no permission beyond what any app has. Values are re-read each time
- * the screen is shown.
+ * NOTHING IS WRITTEN UNLESS ASKED. Opening this screen only reads. Values change when the user
+ * switches between Stock and Custom, saves a custom value while Custom is in use, or presses Fix on
+ * a row.
  *
- * Three kinds of "does not match" are kept apart, because they mean different things:
- * drift (set, and different: expected whenever an overlay is in use, so shown in a neutral tone),
- * invalid (a value that breaks a required format: a real error, shown as one), and not set (the key
- * is absent, so the platform default applies and no claim is made about what that is).
+ * Kinds of "does not match", kept apart because they mean different things: different (set, and
+ * not the expected value; neutral tone), invalid (breaks a required format; error tone), and not
+ * set (the key is absent, so the platform default applies and no claim is made about what that
+ * is).
+ *
+ * A write the system refuses is shown on its row and is not retried: the answer would be the same.
  */
 public class SettingsFragment extends Fragment {
-
-    /** A value that could not be read at all; kept apart from the comparison states. */
-    private static final int UNREADABLE = -1;
 
     private static final class Row {
         final SettingEntry entry;
         final TextView current;
         final TextView expected;
-        final View badgeDrift;
+        final TextView custom;
+        final TextView note;
+        final TextView badgeDrift;
         final View badgeInvalid;
         final TextView badgeNeutral;
+        final MaterialButton edit;
+        final MaterialButton fix;
 
         Row(SettingEntry entry, View view) {
             this.entry = entry;
             current = view.findViewById(R.id.settings_row_current);
             expected = view.findViewById(R.id.settings_row_expected);
+            custom = view.findViewById(R.id.settings_row_custom);
+            note = view.findViewById(R.id.settings_row_note);
             badgeDrift = view.findViewById(R.id.settings_badge_drift);
             badgeInvalid = view.findViewById(R.id.settings_badge_invalid);
             badgeNeutral = view.findViewById(R.id.settings_badge_neutral);
+            edit = view.findViewById(R.id.settings_row_edit);
+            fix = view.findViewById(R.id.settings_row_fix);
         }
     }
 
     private final ArrayList<Row> mRows = new ArrayList<>();
     private TextView mSummaryTitle;
     private TextView mSummaryDetail;
+    private MaterialButtonToggleGroup mModeGroup;
+    private MaterialButton mModeCustom;
+    private TextView mModeNote;
+    private boolean mSyncing;
+
+    private SettingsIo mIo;
+    private OverlayStore mStore;
+    private int mRole = GateSession.NO_ROLE;
+
+    /** The engine reports changes on whichever thread made them; rebind on the UI thread. */
+    private final Runnable mOnOverlayChanged = new Runnable() {
+        @Override public void run() {
+            if (!isAdded()) return;
+            requireActivity().runOnUiThread(() -> {
+                if (isAdded()) refresh();
+            });
+        }
+    };
 
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -79,8 +108,23 @@ public class SettingsFragment extends Fragment {
 
     @Override
     public void onViewCreated(@NonNull View root, @Nullable Bundle savedInstanceState) {
+        mIo = new SystemSettingsIo(requireContext().getContentResolver());
+        mStore = new OverlayStore(requireContext());
+        mRole = GateSession.roleTag();
+
         mSummaryTitle = root.findViewById(R.id.settings_summary_title);
         mSummaryDetail = root.findViewById(R.id.settings_summary_detail);
+        mModeGroup = root.findViewById(R.id.settings_mode_group);
+        mModeCustom = root.findViewById(R.id.settings_mode_custom);
+        mModeNote = root.findViewById(R.id.settings_mode_note);
+        mModeGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+            if (mSyncing || !isChecked) return;
+            if (checkedId == R.id.settings_mode_custom) {
+                OverlayEngine.apply(mIo, mStore, mRole);
+            } else {
+                OverlayEngine.revert(mIo, mStore);
+            }
+        });
 
         mRows.clear();
         final ViewGroup sections = root.findViewById(R.id.settings_sections);
@@ -102,10 +146,25 @@ public class SettingsFragment extends Fragment {
                 ((TextView) rowView.findViewById(R.id.settings_row_address))
                         .setText(entry.address());
                 rows.addView(rowView);
-                mRows.add(new Row(entry, rowView));
+                final Row row = new Row(entry, rowView);
+                row.edit.setOnClickListener(v -> promptCustom(entry));
+                row.fix.setOnClickListener(v -> OverlayEngine.fix(mIo, mStore, mRole, entry));
+                mRows.add(row);
             }
             sections.addView(sectionView);
         }
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        OverlayEngine.addListener(mOnOverlayChanged);
+    }
+
+    @Override
+    public void onStop() {
+        OverlayEngine.removeListener(mOnOverlayChanged);
+        super.onStop();
     }
 
     @Override
@@ -114,35 +173,45 @@ public class SettingsFragment extends Fragment {
         refresh();
     }
 
-    /** Re-read every entry, bind each row, then the summary. */
+    /** Re-read every entry, bind each row, then the switch and the summary. */
     private void refresh() {
         if (mSummaryTitle == null) return;
-        final ContentResolver resolver = requireContext().getContentResolver();
+        final boolean customActive = OverlayEngine.isCustomActive(mStore, mRole);
         int drift = 0;
         int invalid = 0;
         int unset = 0;
+        boolean problem = false;
         for (Row row : mRows) {
             String actual = null;
             boolean readable = true;
             try {
-                actual = read(resolver, row.entry);
+                actual = mIo.read(row.entry);
             } catch (RuntimeException e) {
                 readable = false;    // shown as unreadable; never guessed at
             }
-            if (!readable) {
-                bind(row, null, UNREADABLE);
+            final String expected = OverlayEngine.expected(row.entry, mStore, mRole);
+            final SettingCompare.State state = readable
+                    ? SettingCompare.evaluate(row.entry, actual, expected) : null;
+            bind(row, actual, expected, state, customActive);
+            if (state == null || state == SettingCompare.State.UNSET) {
                 unset++;
-                continue;
+            } else if (state == SettingCompare.State.DRIFT) {
+                drift++;
+            } else if (state == SettingCompare.State.INVALID) {
+                invalid++;
             }
-            final SettingCompare.State state = SettingCompare.evaluate(row.entry, actual);
-            bind(row, actual, state.ordinal());
-            switch (state) {
-                case DRIFT:   drift++;   break;
-                case INVALID: invalid++; break;
-                case UNSET:   unset++;   break;
-                default:                 break;
-            }
+            if (OverlayEngine.lastFailure(row.entry) != null) problem = true;
         }
+
+        final boolean hasCustom = mStore.hasAny(mRole);
+        mSyncing = true;
+        mModeGroup.check(customActive ? R.id.settings_mode_custom : R.id.settings_mode_stock);
+        mModeCustom.setEnabled(hasCustom || customActive);
+        mSyncing = false;
+        mModeNote.setText(problem ? R.string.settings_mode_note_problem
+                : customActive ? R.string.settings_mode_note_custom
+                : hasCustom ? R.string.settings_mode_note_stock
+                : R.string.settings_mode_note_none);
 
         final int total = mRows.size();
         final int flagged = drift + invalid + unset;
@@ -152,20 +221,20 @@ public class SettingsFragment extends Fragment {
         mSummaryDetail.setText(getString(R.string.settings_summary_counts, drift, invalid, unset));
     }
 
-    private static String read(ContentResolver resolver, SettingEntry entry) {
-        switch (entry.namespace) {
-            case SECURE: return Settings.Secure.getString(resolver, entry.key);
-            case GLOBAL: return Settings.Global.getString(resolver, entry.key);
-            case SYSTEM:
-            default:     return Settings.System.getString(resolver, entry.key);
-        }
+    /** A raw value with its meaning beside it when the entry names one: "2 (Dark)". */
+    private String display(SettingEntry entry, String value) {
+        final int label = entry.labelFor(value);
+        return label == 0 ? value
+                : getString(R.string.settings_value_labeled_fmt, value, getString(label));
     }
 
-    /** @param stateOrdinal a {@link SettingCompare.State} ordinal, or {@link #UNREADABLE}. */
-    private void bind(Row row, String actual, int stateOrdinal) {
-        final boolean unreadable = stateOrdinal == UNREADABLE;
-        final SettingCompare.State state =
-                unreadable ? null : SettingCompare.State.values()[stateOrdinal];
+    /** @param state the comparison result, or null if the value could not be read. */
+    private void bind(Row row, String actual, String expected, SettingCompare.State state,
+            boolean customActive) {
+        final SettingEntry entry = row.entry;
+        final boolean unreadable = state == null;
+        final String custom = mStore.custom(mRole, entry);
+        final boolean expectsCustom = customActive && custom != null;
 
         if (unreadable) {
             row.current.setText(R.string.settings_current_unreadable);
@@ -174,39 +243,110 @@ public class SettingsFragment extends Fragment {
         } else if (actual.isEmpty()) {
             row.current.setText(R.string.settings_current_empty);
         } else {
-            row.current.setText(getString(R.string.settings_current_fmt, actual));
+            row.current.setText(getString(R.string.settings_current_fmt, display(entry, actual)));
         }
 
-        // What was expected, shown only when the value does not match.
+        // What was expected, shown only on a mismatch. When the expectation is the custom value,
+        // the custom line below already says it.
         final boolean matches = state == SettingCompare.State.STOCK;
-        if (matches || unreadable) {
+        if (matches || unreadable || expectsCustom
+                || entry.compare == SettingEntry.Compare.PATTERN) {
             row.expected.setVisibility(View.GONE);
         } else {
             row.expected.setVisibility(View.VISIBLE);
-            switch (row.entry.compare) {
-                case SUPERSET:
-                    row.expected.setText(getString(R.string.settings_missing_fmt,
-                            TextUtils.join(", ", SettingCompare.missingTokens(
-                                    row.entry, actual, row.entry.stock))));
-                    break;
-                case PATTERN:
-                    row.expected.setText(R.string.settings_expected_format);
-                    break;
-                case EXACT:
-                default:
-                    row.expected.setText(getString(R.string.settings_stock_fmt, row.entry.stock));
-                    break;
+            if (entry.compare == SettingEntry.Compare.SUPERSET) {
+                row.expected.setText(getString(R.string.settings_missing_fmt, TextUtils.join(", ",
+                        SettingCompare.missingTokens(entry, actual, expected))));
+            } else {
+                row.expected.setText(getString(R.string.settings_stock_fmt,
+                        display(entry, entry.stock)));
             }
         }
 
-        row.badgeDrift.setVisibility(state == SettingCompare.State.DRIFT ? View.VISIBLE : View.GONE);
+        if (custom == null) {
+            row.custom.setVisibility(View.GONE);
+        } else {
+            row.custom.setVisibility(View.VISIBLE);
+            row.custom.setText(getString(R.string.settings_custom_fmt, display(entry, custom)));
+        }
+
+        final SettingsIo.Result failure = OverlayEngine.lastFailure(entry);
+        if (failure != null) {
+            row.note.setVisibility(View.VISIBLE);
+            row.note.setText(failure == SettingsIo.Result.REFUSED
+                    ? R.string.settings_note_refused : R.string.settings_note_failed);
+        } else if (!entry.writable()) {
+            row.note.setVisibility(View.VISIBLE);
+            row.note.setText(R.string.settings_note_tier2);
+        } else {
+            row.note.setVisibility(View.GONE);
+        }
+
+        final boolean drift = state == SettingCompare.State.DRIFT;
+        row.badgeDrift.setVisibility(drift ? View.VISIBLE : View.GONE);
+        if (drift) {
+            row.badgeDrift.setText(expectsCustom ? R.string.settings_badge_not_applied
+                                                 : R.string.settings_badge_drift);
+        }
         row.badgeInvalid.setVisibility(
                 state == SettingCompare.State.INVALID ? View.VISIBLE : View.GONE);
-        final boolean neutral = unreadable || state == SettingCompare.State.UNSET;
-        row.badgeNeutral.setVisibility(neutral ? View.VISIBLE : View.GONE);
-        if (neutral) {
-            row.badgeNeutral.setText(unreadable ? R.string.settings_badge_unreadable
-                                                : R.string.settings_badge_unset);
+        final boolean unset = state == SettingCompare.State.UNSET;
+        final boolean showsCustom = matches && expectsCustom;
+        row.badgeNeutral.setVisibility(
+                unreadable || unset || showsCustom ? View.VISIBLE : View.GONE);
+        if (unreadable) {
+            row.badgeNeutral.setText(R.string.settings_badge_unreadable);
+        } else if (unset) {
+            row.badgeNeutral.setText(R.string.settings_badge_unset);
+        } else if (showsCustom) {
+            row.badgeNeutral.setText(R.string.settings_badge_custom);
+        }
+
+        row.edit.setVisibility(entry.overlayable ? View.VISIBLE : View.GONE);
+        final boolean fixable = !unreadable && !matches && entry.writable()
+                && entry.compare != SettingEntry.Compare.PATTERN;
+        row.fix.setVisibility(fixable ? View.VISIBLE : View.GONE);
+    }
+
+    // ---- custom value dialog ---------------------------------------------------------------------
+
+    private void promptCustom(final SettingEntry entry) {
+        final String custom = mStore.custom(mRole, entry);
+        final String shown = custom != null ? custom : entry.stock;
+        final MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(entry.titleRes)
+                .setNegativeButton(R.string.hidden_cancel, null)
+                .setNeutralButton(R.string.settings_use_stock,
+                        (dialog, which) -> saveCustom(entry, null));
+
+        if (entry.choiceValues != null) {
+            final CharSequence[] labels = new CharSequence[entry.choiceValues.length];
+            int checked = -1;
+            for (int i = 0; i < labels.length; i++) {
+                labels[i] = getString(entry.choiceLabels[i]);
+                if (entry.choiceValues[i].equals(shown)) checked = i;
+            }
+            builder.setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                saveCustom(entry, entry.choiceValues[which]);
+                dialog.dismiss();
+            });
+        } else {
+            final View body = getLayoutInflater().inflate(R.layout.dialog_setting_value, null);
+            final EditText input = body.findViewById(R.id.settings_value_input);
+            input.setText(shown);
+            builder.setView(body).setPositiveButton(R.string.settings_save,
+                    (dialog, which) -> saveCustom(entry, input.getText().toString().trim()));
+        }
+        builder.show();
+    }
+
+    /** Null clears the custom value. The engine writes it at once if Custom is in use. */
+    private void saveCustom(SettingEntry entry, String value) {
+        if (!OverlayEngine.setCustom(mIo, mStore, mRole, entry, value)) {
+            new MaterialAlertDialogBuilder(requireContext())
+                    .setMessage(R.string.settings_value_rejected)
+                    .setPositiveButton(R.string.settings_ok, null)
+                    .show();
         }
     }
 }

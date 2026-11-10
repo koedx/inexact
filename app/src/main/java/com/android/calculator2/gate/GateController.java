@@ -3,7 +3,7 @@
  *
  * Purpose: owns the gate for one Activity instance; routes presses to the recorder or the matcher
  *          and drives the PIN-setup appearance. Role-aware as of blob v2.
- * Modified: 2026-11-10 06:00:00 UTC
+ * Modified: 2026-11-10 09:00:00 UTC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -90,6 +90,9 @@ public final class GateController implements PinRecorder.Listener {
      */
     public void onActivityResumed() {
         mCredential.warmUp();   // idempotent, background, no Keystore key is created by this
+        // If custom settings were left applied by a session that died, take them off. Background,
+        // silent, and a no-op on an install that has never stored any.
+        OverlayEngine.reconcileAsync(mHost.context());
 
         if (GateSession.consumeRerecord()) {   // admin surface asked for a PIN change
             mRerecording = true;

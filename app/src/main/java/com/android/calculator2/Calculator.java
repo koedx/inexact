@@ -263,12 +263,13 @@ public class Calculator extends Activity
         }
         @Override public void openGate(int roleTag) {
             clearDisplayQuietly();                  // "clear the display when the hidden view opens"
-            // Begin the session for the matched role, start the session service (its notification
+            // Begin the session for the matched role, settle its settings and start the session
+            // service (its notification
             // is how the session is returned to and locked while this task is in the background),
             // then open the launcher. Deliberately no logging: a log line on the match path is a
             // leak (step-3 review).
             com.android.calculator2.gate.GateSession.begin(roleTag);
-            com.android.calculator2.gate.SessionService.start(Calculator.this);
+            com.android.calculator2.gate.SessionService.begin(Calculator.this);
             startActivity(new Intent(Calculator.this,
                     com.android.calculator2.gate.LauncherActivity.class));
         }

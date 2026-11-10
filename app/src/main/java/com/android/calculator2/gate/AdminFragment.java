@@ -2,9 +2,10 @@
  * Copyright (C) 2026 The Android Open Source Project / InExact fork
  *
  * Purpose: admin dashboard destination — adb/developer toggles, Developer options shortcut, version,
- *          Keystore diagnostic, Change PIN, and guest-slot management (blob v2 roles).
+ *          Keystore diagnostic, Change PIN, guest-slot management (blob v2 roles), and the session
+ *          options (lock timeout, when custom settings go on and come off).
  * Created:  2026-11-06 09:44:19 UTC
- * Modified: 2026-11-10 06:00:00 UTC
+ * Modified: 2026-11-10 09:00:00 UTC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -79,6 +80,12 @@ public class AdminFragment extends Fragment {
     private final MaterialButton[] mGuestReset = new MaterialButton[SLOTS];
     private TextView mGuestsNote;
 
+    private MaterialSwitch mTimeoutSwitch;
+    private TextView mTimeoutLength;
+    private View mTimeoutLengthRow;
+    private MaterialSwitch mAutoApplySwitch;
+    private MaterialSwitch mRevertSwitch;
+
     private RoleStore mRoles;
     private State mState;
 
@@ -147,6 +154,37 @@ public class AdminFragment extends Fragment {
         mGuestsNote = root.findViewById(R.id.hidden_guests_note);
         addGuestRows(root.findViewById(R.id.hidden_guest_rows));
 
+        // Session card.
+        final ViewGroup sessionRows = root.findViewById(R.id.hidden_session_rows);
+        mTimeoutSwitch = addSwitchRow(sessionRows, R.string.session_timeout_title,
+                R.string.session_timeout_desc);
+        mTimeoutSwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (mSyncing) return;
+            SessionPrefs.setLockTimeoutEnabled(requireContext(), checked);
+            syncSession();
+        });
+        getLayoutInflater().inflate(R.layout.hidden_divider, sessionRows, true);
+        mTimeoutLengthRow = getLayoutInflater().inflate(R.layout.hidden_row_info, sessionRows, false);
+        ((TextView) mTimeoutLengthRow.findViewById(R.id.hidden_info_title))
+                .setText(R.string.session_timeout_length_title);
+        mTimeoutLength = mTimeoutLengthRow.findViewById(R.id.hidden_info_value);
+        mTimeoutLengthRow.setOnClickListener(v -> promptTimeoutLength());
+        sessionRows.addView(mTimeoutLengthRow);
+        getLayoutInflater().inflate(R.layout.hidden_divider, sessionRows, true);
+        mAutoApplySwitch = addSwitchRow(sessionRows, R.string.session_auto_apply_title,
+                R.string.session_auto_apply_desc);
+        mAutoApplySwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (mSyncing) return;
+            SessionPrefs.setApplyCustomAtSignIn(requireContext(), checked);
+        });
+        getLayoutInflater().inflate(R.layout.hidden_divider, sessionRows, true);
+        mRevertSwitch = addSwitchRow(sessionRows, R.string.session_revert_title,
+                R.string.session_revert_desc);
+        mRevertSwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (mSyncing) return;
+            SessionPrefs.setStockAtSignOut(requireContext(), checked);
+        });
+
         // About card.
         final ViewGroup aboutRows = root.findViewById(R.id.hidden_about_rows);
         addInfoRow(aboutRows, R.string.hidden_version_title).setText(getString(
@@ -158,6 +196,7 @@ public class AdminFragment extends Fragment {
         super.onResume();
         if (mAdbSwitch == null) return;
         syncSwitches();
+        syncSession();
         bindDeveloperOptionsAction();
         reload();
     }
@@ -249,6 +288,45 @@ public class AdminFragment extends Fragment {
             mStatus.setText(messageRes);
             mStatus.setVisibility(View.VISIBLE);
         }
+    }
+
+    // ---- session options ---------------------------------------------------------------------
+
+    private String timeoutLabel(int minutes) {
+        return minutes == 0 ? getString(R.string.session_timeout_immediately)
+                : minutes == 1 ? getString(R.string.session_timeout_one_minute)
+                : getString(R.string.session_timeout_minutes_fmt, minutes);
+    }
+
+    private void syncSession() {
+        final boolean timeoutOn = SessionPrefs.lockTimeoutEnabled(requireContext());
+        mSyncing = true;
+        mTimeoutSwitch.setChecked(timeoutOn);
+        mAutoApplySwitch.setChecked(SessionPrefs.applyCustomAtSignIn(requireContext()));
+        mRevertSwitch.setChecked(SessionPrefs.stockAtSignOut(requireContext()));
+        mSyncing = false;
+        mTimeoutLength.setText(timeoutLabel(SessionPrefs.lockTimeoutMinutes(requireContext())));
+        mTimeoutLengthRow.setEnabled(timeoutOn);   // the length only matters while the timeout is on
+    }
+
+    private void promptTimeoutLength() {
+        final int[] choices = SessionPrefs.TIMEOUT_CHOICES;
+        final CharSequence[] labels = new CharSequence[choices.length];
+        final int current = SessionPrefs.lockTimeoutMinutes(requireContext());
+        int checked = -1;
+        for (int i = 0; i < choices.length; i++) {
+            labels[i] = timeoutLabel(choices[i]);
+            if (choices[i] == current) checked = i;
+        }
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.session_timeout_length_title)
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    SessionPrefs.setLockTimeoutMinutes(requireContext(), choices[which]);
+                    syncSession();
+                    dialog.dismiss();
+                })
+                .setNegativeButton(R.string.hidden_cancel, null)
+                .show();
     }
 
     // ---- Developer options shortcut ----------------------------------------------------------

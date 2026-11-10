@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Settings catalog and drift view, plus the session notification. translatable="false" (admin
-  tool); the project name never appears. No dashes as punctuation anywhere near values: these rows
-  show raw numbers, and a dash beside a number reads as a minus sign.
+  Settings catalog, Stock and Custom, the session notification and the session options.
+  translatable="false" (admin tool); the project name never appears. No dashes as punctuation
+  anywhere near values: these rows show raw numbers, and a dash beside a number reads as a minus
+  sign.
   Created:  2026-11-10 06:00:00 UTC
-  Modified: 2026-11-10 06:00:00 UTC
+  Modified: 2026-11-10 09:00:00 UTC
 -->
 <resources>
     <!-- Navigation -->
@@ -14,27 +15,79 @@
     <string name="session_channel_name" translatable="false">Status</string>
     <string name="session_notification_title" translatable="false">Signed in</string>
     <string name="session_notification_text" translatable="false">Tap to return. Lock to sign out.</string>
+    <string name="session_notification_stock" translatable="false">Settings: Stock. Tap to return.</string>
+    <string name="session_notification_custom" translatable="false">Settings: Custom. Tap to return.</string>
+    <string name="session_action_use_custom" translatable="false">Use Custom</string>
+    <string name="session_action_use_stock" translatable="false">Use Stock</string>
+
+    <!-- Session options (Admin) -->
+    <string name="hidden_section_session" translatable="false">Session</string>
+    <string name="session_timeout_title" translatable="false">Sign out after the tablet is locked</string>
+    <string name="session_timeout_desc" translatable="false">Ends the session once the tablet has stayed locked for the time below. Off means only Lock signs out.</string>
+    <string name="session_timeout_length_title" translatable="false">Locked for</string>
+    <string name="session_timeout_immediately" translatable="false">Immediately</string>
+    <string name="session_timeout_one_minute" translatable="false">1 minute</string>
+    <string name="session_timeout_minutes_fmt" translatable="false">%1$d minutes</string>
+    <string name="session_auto_apply_title" translatable="false">Use Custom settings at sign in</string>
+    <string name="session_auto_apply_desc" translatable="false">Applies your custom values as soon as you sign in.</string>
+    <string name="session_revert_title" translatable="false">Return to Stock at sign out</string>
+    <string name="session_revert_desc" translatable="false">Takes custom values off when the session ends. Turn off to leave them in place.</string>
+
+    <!-- Stock and Custom switch -->
+    <string name="settings_mode_stock" translatable="false">Stock</string>
+    <string name="settings_mode_custom" translatable="false">Custom</string>
+    <string name="settings_mode_note_none" translatable="false">No custom values yet. Set one on any row marked Custom value, then switch to Custom to apply it.</string>
+    <string name="settings_mode_note_stock" translatable="false">Stock is in use. Your custom values are saved and not applied.</string>
+    <string name="settings_mode_note_custom" translatable="false">Custom is in use. Your custom values are applied over stock.</string>
+    <string name="settings_mode_note_problem" translatable="false">Some values could not be written. See the rows below.</string>
 
     <!-- Summary card -->
-    <string name="settings_summary_all_stock" translatable="false">All %1$d settings match stock</string>
+    <string name="settings_summary_all_stock" translatable="false">All %1$d settings are as expected</string>
     <string name="settings_summary_differ" translatable="false">%1$d of %2$d settings need a look</string>
-    <string name="settings_summary_counts" translatable="false">Not stock: %1$d. Invalid: %2$d. Not set: %3$d.</string>
-    <string name="settings_read_only_note" translatable="false">This view only reads. Nothing here changes a setting yet.</string>
+    <string name="settings_summary_counts" translatable="false">Different: %1$d. Invalid: %2$d. Not set: %3$d.</string>
 
-    <!-- Row value lines. %1$s is a raw setting value. -->
+    <!-- Row value lines. %1$s is a raw setting value; %2$s is its meaning. -->
+    <string name="settings_value_labeled_fmt" translatable="false">%1$s (%2$s)</string>
     <string name="settings_current_fmt" translatable="false">Current: %1$s</string>
     <string name="settings_current_unset" translatable="false">Current: not set</string>
     <string name="settings_current_empty" translatable="false">Current: (empty)</string>
     <string name="settings_current_unreadable" translatable="false">Current: could not be read</string>
     <string name="settings_stock_fmt" translatable="false">Stock: %1$s</string>
+    <string name="settings_custom_fmt" translatable="false">Custom value: %1$s</string>
     <string name="settings_missing_fmt" translatable="false">Missing: %1$s</string>
-    <string name="settings_expected_format" translatable="false">Expected format: 12345678: SMITH, JOHN</string>
+    <string name="settings_note_refused" translatable="false">The system refused this change. This app is not allowed to write this key; it needs the shell tier.</string>
+    <string name="settings_note_failed" translatable="false">The last change did not take effect.</string>
+    <string name="settings_note_tier2" translatable="false">Read only here. Changing it needs the shell tier.</string>
+
+    <!-- Row actions and the value dialog -->
+    <string name="settings_action_edit" translatable="false">Custom value</string>
+    <string name="settings_action_fix" translatable="false">Fix</string>
+    <string name="settings_use_stock" translatable="false">Use stock</string>
+    <string name="settings_save" translatable="false">Save</string>
+    <string name="settings_value_rejected" translatable="false">That value was not accepted. It must not be empty and must fit on one line.</string>
+    <string name="settings_ok" translatable="false">OK</string>
 
     <!-- Badges. Text carries the meaning; colour only reinforces it. -->
     <string name="settings_badge_drift" translatable="false">Not stock</string>
+    <string name="settings_badge_not_applied" translatable="false">Not applied</string>
+    <string name="settings_badge_custom" translatable="false">Custom</string>
     <string name="settings_badge_invalid" translatable="false">Invalid</string>
     <string name="settings_badge_unset" translatable="false">Not set</string>
     <string name="settings_badge_unreadable" translatable="false">Unreadable</string>
+
+    <!-- Choice labels -->
+    <string name="settings_choice_off" translatable="false">Off</string>
+    <string name="settings_choice_on" translatable="false">On</string>
+    <string name="settings_choice_light" translatable="false">Light</string>
+    <string name="settings_choice_dark" translatable="false">Dark</string>
+    <string name="settings_choice_automatic" translatable="false">Automatic</string>
+    <string name="settings_choice_nothing" translatable="false">Does nothing</string>
+    <string name="settings_choice_power_menu" translatable="false">Power menu</string>
+    <string name="settings_choice_power_off" translatable="false">Power off at once</string>
+    <string name="settings_choice_power_off_confirm" translatable="false">Power off after asking</string>
+    <string name="settings_choice_voice_assist" translatable="false">Voice assistant</string>
+    <string name="settings_choice_theater" translatable="false">Theater mode</string>
+    <string name="settings_choice_brightness_boost" translatable="false">Brightness boost</string>
 
     <!-- Sections -->
     <string name="settings_section_status_bar" translatable="false">Status bar</string>
@@ -46,7 +99,7 @@
     <string name="settings_section_network" translatable="false">Network</string>
 
     <!-- Entries -->
-    <string name="settings_off_on_summary" translatable="false">0 is off, 1 is on.</string>
+    <string name="settings_off_on_summary" translatable="false">Stock is off.</string>
 
     <string name="settings_icon_blacklist_title" translatable="false">Hidden status bar icons</string>
     <string name="settings_icon_blacklist_summary" translatable="false">Stock hides at least: airplane, bluetooth, cast, rotate, vpn, wifi. Extra entries are fine.</string>
@@ -54,27 +107,27 @@
     <string name="settings_battery_percent_title" translatable="false">Battery percentage in status bar</string>
 
     <string name="settings_qs_tiles_title" translatable="false">Quick settings tiles</string>
-    <string name="settings_qs_tiles_summary" translatable="false">The exact tile list, in order.</string>
+    <string name="settings_qs_tiles_summary" translatable="false">The exact tile list, in order, separated by commas. Stock is the rotation tile alone.</string>
 
     <string name="settings_power_double_title" translatable="false">Power button double press</string>
-    <string name="settings_power_double_summary" translatable="false">0 does nothing.</string>
     <string name="settings_power_long_title" translatable="false">Power button long press</string>
     <string name="settings_power_very_long_title" translatable="false">Power button very long press</string>
-    <string name="settings_power_menu_summary" translatable="false">0 does nothing, 1 opens the power menu.</string>
+    <string name="settings_power_summary" translatable="false">Stock does nothing.</string>
 
     <string name="settings_night_mode_title" translatable="false">Dark theme</string>
-    <string name="settings_night_mode_summary" translatable="false">1 is light, 2 is dark, 0 is automatic.</string>
+    <string name="settings_night_mode_summary" translatable="false">Stock is light.</string>
 
     <string name="settings_show_touches_title" translatable="false">Show taps</string>
 
-    <string name="settings_owner_info_title" translatable="false">Lock screen message</string>
-    <string name="settings_owner_info_summary" translatable="false">An 8 digit ID, a colon, then LAST, FIRST in capitals.</string>
+    <string name="settings_show_notifications_title" translatable="false">Notifications on lock screen</string>
+    <string name="settings_show_notifications_summary" translatable="false">Stock is off: a locked tablet shows no notifications.</string>
 
     <string name="settings_private_notifications_title" translatable="false">Sensitive notifications on lock screen</string>
-    <string name="settings_private_notifications_summary" translatable="false">0 hides their content, 1 shows it.</string>
+    <string name="settings_private_notifications_summary" translatable="false">Stock is off: notification content stays hidden while locked.</string>
 
     <string name="settings_print_services_title" translatable="false">Disabled print services</string>
     <string name="settings_print_services_summary" translatable="false">Stock keeps the built in print service disabled.</string>
 
     <string name="settings_airplane_title" translatable="false">Airplane mode</string>
+    <string name="settings_airplane_summary" translatable="false">Stock is on.</string>
 </resources>
