@@ -1,12 +1,13 @@
 /*
  * Copyright (C) 2026 The Android Open Source Project / InExact fork
  *
- * Purpose: per-role profile store — friendly names now, panel/allowlist config later. Encrypted at
- *          rest with AES-GCM under a device-bound, hardware-backed AndroidKeyStore key, so a copy
- *          of the file is useless off this tablet. Deliberately NOT keyed to the admin PIN: a guest
- *          unlock must be able to read its own profile, and no admin PIN is present then.
+ * Purpose: per-role metadata store: friendly names now, more per-role configuration later.
+ *          Encrypted at rest with AES-GCM under a device-bound, hardware-backed AndroidKeyStore
+ *          key, so a copy of the file is useless off this tablet. Deliberately NOT keyed to the
+ *          admin PIN: a guest unlock must be able to read its own entry, and no admin PIN is
+ *          present then.
  * Created:  2026-11-08 07:31:00 UTC
- * Modified: 2026-11-08 07:31:00 UTC
+ * Modified: 2026-11-10 06:00:00 UTC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,7 +43,8 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.GCMParameterSpec;
 
 /**
- * Admin-set profile metadata, one record per role.
+ * Admin-set metadata, one entry per role (admin and guest slots). "Role" is the credential axis;
+ * the word "profile" is deliberately not used for it, to keep it distinct from settings overlays.
  *
  * Scope note: this file holds HINTS, not secrets — a label like "rental (stock)" that reminds the
  * admin what a guest slot is for. The credential records live in the gate blob
@@ -56,12 +58,12 @@ import javax.crypto.spec.GCMParameterSpec;
  * Encryption: AES-256-GCM, key alias {@link #KEY_ALIAS}, generated on first write. Hardware-backing
  * is required, matching the credential's rule — if the key is not inside secure hardware it is
  * deleted and the write fails rather than falling back to plaintext. A read that cannot decrypt
- * (missing key, key invalidated, truncated or tampered file) fails SAFE to "no profiles stored", so
+ * (missing key, key invalidated, truncated or tampered file) fails SAFE to "no names stored", so
  * the surface shows default names instead of refusing to open.
  *
  * All methods here do file I/O and touch the Keystore binder: BLOCKING, call off the UI thread.
  */
-public final class ProfileStore {
+public final class RoleStore {
 
     /**
      * Role tags, taken from the credential seam rather than redeclared, so the slot range here can
@@ -74,9 +76,9 @@ public final class ProfileStore {
     public static final int MAX_NAME_LEN = 40;
 
     private static final String ANDROID_KEYSTORE = "AndroidKeyStore";
-    private static final String KEY_ALIAS   = "inexact_profile_aes_v1";
+    private static final String KEY_ALIAS   = "inexact_roles_aes_v1";
     private static final String TRANSFORM   = "AES/GCM/NoPadding";
-    private static final String PROFILE_FILE = ".profiles";
+    private static final String ROLES_FILE = ".roles";
 
     private static final byte FORMAT_VERSION = 0x01;
     private static final int  TAG_BITS       = 128;   // GCM authentication tag, full length
@@ -85,13 +87,13 @@ public final class ProfileStore {
 
     // JSON keys. Short names keep the plaintext (and so the ciphertext) compact.
     private static final String J_VERSION  = "v";
-    private static final String J_PROFILES = "p";
+    private static final String J_ROLES = "p";
     private static final String J_ID       = "i";
     private static final String J_NAME     = "n";
 
     private final Context mContext;
 
-    public ProfileStore(Context context) {
+    public RoleStore(Context context) {
         mContext = context.getApplicationContext();
     }
 
@@ -110,7 +112,7 @@ public final class ProfileStore {
             plain = decrypt(file);
             if (plain == null) return out;
             final JSONObject root = new JSONObject(new String(plain, "UTF-8"));
-            final JSONArray arr = root.optJSONArray(J_PROFILES);
+            final JSONArray arr = root.optJSONArray(J_ROLES);
             if (arr == null) return out;
             for (int i = 0; i < arr.length(); i++) {
                 final JSONObject o = arr.optJSONObject(i);
@@ -194,7 +196,7 @@ public final class ProfileStore {
             }
             final JSONObject root = new JSONObject();
             root.put(J_VERSION, 1);
-            root.put(J_PROFILES, arr);
+            root.put(J_ROLES, arr);
 
             plain = root.toString().getBytes("UTF-8");
             final byte[] blob = encrypt(plain);
@@ -208,11 +210,11 @@ public final class ProfileStore {
         }
     }
 
-    /** Atomic: write .profiles.tmp, fsync, rename over .profiles (same discipline as the blob). */
+    /** Atomic: write .roles.tmp, fsync, rename over .roles (same discipline as the blob). */
     private void writeAtomic(byte[] blob) throws IOException {
         final File dir = mContext.getFilesDir();
-        final File tmp = new File(dir, PROFILE_FILE + ".tmp");
-        final File dst = new File(dir, PROFILE_FILE);
+        final File tmp = new File(dir, ROLES_FILE + ".tmp");
+        final File dst = new File(dir, ROLES_FILE);
         final FileOutputStream fos = new FileOutputStream(tmp);
         try {
             fos.write(blob);
@@ -229,7 +231,7 @@ public final class ProfileStore {
 
     /** Whole file, or null if absent / unreadable. */
     private byte[] readFile() {
-        final File f = new File(mContext.getFilesDir(), PROFILE_FILE);
+        final File f = new File(mContext.getFilesDir(), ROLES_FILE);
         if (!f.exists()) return null;
         FileInputStream in = null;
         try {
@@ -274,7 +276,7 @@ public final class ProfileStore {
     /**
      * Inverse of {@link #encrypt}. Returns null on any failure — including a failed GCM tag check,
      * which is what an edited or truncated file produces. Tampering therefore reads as "no
-     * profiles", never as attacker-chosen text.
+     * names", never as attacker-chosen text.
      */
     private byte[] decrypt(byte[] file) throws Exception {
         if (file.length < 2) return null;
@@ -296,7 +298,7 @@ public final class ProfileStore {
     }
 
     /**
-     * Fetch the profile key, generating it on first use. Hardware-backing is required: a
+     * Fetch the store key, generating it on first use. Hardware-backing is required: a
      * software-backed key is deleted and null returned, so nothing is ever written in a form a
      * copied file could reveal elsewhere. Separate alias and purpose from the credential's HMAC key
      * — one key, one job.
@@ -312,7 +314,7 @@ public final class ProfileStore {
                     .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                     .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                     .setKeySize(KEY_BITS)
-                    // No setUserAuthenticationRequired: a guest unlock must read its own profile,
+                    // No setUserAuthenticationRequired: a guest unlock must read its own entry,
                     // and lockscreen binding would invalidate the key on a lockscreen change.
                     // No StrongBox on this SoC — do not request it.
                     .build());

@@ -2,7 +2,7 @@
  * Copyright (C) 2026 The Android Open Source Project / InExact fork
  *
  * Purpose: PIN recording / confirmation state machine (spec v0.4 §6), now recording for one role.
- * Modified: 2026-11-08 07:31:00 UTC
+ * Modified: 2026-11-10 06:00:00 UTC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ import java.util.Arrays;
  * saves; a mismatch is a non-terminal error that restarts recording from the first entry.
  *
  * ROLE. Whichever role {@link #setTargetRole} names is the record that gets written, and the PIN is
- * required to begin with that role's digit ({@link #MIN_DIGITS} digits in total). The controller
+ * required to begin with that role's digit ({@link GateCredential#MIN_DIGITS} digits in total). The controller
  * sets the target before recording begins.
  *
  * Saving is ASYNC (PBKDF2 + Keystore off the UI thread). The machine enters {@link Phase#SAVING} and
@@ -47,19 +47,6 @@ import java.util.Arrays;
  * mode). Only a successful save ends setup.
  */
 final class PinRecorder {
-
-    /**
-     * Minimum digits for a NEWLY RECORDED PIN.
-     *
-     * One higher than the matcher's floor, deliberately. The first digit is now the role digit and
-     * so is publicly inferable from the app, and a fourth digit keeps three digits free — restoring
-     * what the prefix rule costs. The matcher does NOT share this value: raising its floor would
-     * make a shorter credential written by an older build unmatchable, i.e. lock the owner out.
-     */
-    static final int MIN_DIGITS = 4;
-
-    /** Minimum operators (addendum §3). */
-    private static final int MIN_OPS = 3;
 
     /** Notified only when a credential is successfully saved. */
     interface Listener {
@@ -167,8 +154,8 @@ final class PinRecorder {
                     repeatError(mHost.context().getString(R.string.gate_err_repeat_digits));
                     return true;
                 }
-                if (digits.length() < MIN_DIGITS) {
-                    repeatError(text(R.string.gate_err_repeat_min_digits_role, MIN_DIGITS));
+                if (digits.length() < GateCredential.MIN_DIGITS) {
+                    repeatError(text(R.string.gate_err_repeat_min_digits_role, GateCredential.MIN_DIGITS));
                     return true;
                 }
                 mDigits2 = digits;
@@ -214,9 +201,9 @@ final class PinRecorder {
                     error(R.string.gate_prompt_title, R.string.gate_err_digits);
                     return true;
                 }
-                if (digits.length() < MIN_DIGITS) {
+                if (digits.length() < GateCredential.MIN_DIGITS) {
                     errorText(R.string.gate_prompt_title,
-                            text(R.string.gate_err_min_digits_role, MIN_DIGITS, mTargetRole));
+                            text(R.string.gate_err_min_digits_role, GateCredential.MIN_DIGITS, mTargetRole));
                     return true;
                 }
                 if (!Pbkdf2KeystoreCredential.hasRolePrefix(mTargetRole, digits)) {
@@ -232,7 +219,7 @@ final class PinRecorder {
                 return true;
             }
             case P1_OPS: {
-                if (mOps1.size() < MIN_OPS) {
+                if (mOps1.size() < GateCredential.MIN_OPS) {
                     error(R.string.gate_prompt_ops_title, R.string.gate_err_min_ops);
                     return true;
                 }
@@ -269,8 +256,7 @@ final class PinRecorder {
         final int[] ops = toIntArray(mOps1);
         final int role = mTargetRole;
         mPhase = Phase.SAVING;
-        // Profile ids currently equal role tags.
-        mCredential.save(role, role, digits, ops, new GateCredential.ResultCallback() {
+        mCredential.save(role, digits, ops, new GateCredential.ResultCallback() {
             @Override
             public void onResult(boolean success) {
                 if (success) {

@@ -3,27 +3,21 @@
   Guest-access strings for the admin surface. New file so hidden_strings.xml keeps its names.
   English-only (admin tool), hence translatable="false". The project name never appears here.
   Created:  2026-11-08 07:31:00 UTC
-  Modified: 2026-11-08 07:31:00 UTC
+  Modified: 2026-11-10 06:00:00 UTC
 -->
 <resources>
     <string name="hidden_section_guests" translatable="false">Guest access</string>
 
     <!-- Card note. States the prefix rule, which is what prevents one role's PIN from shadowing
          another's: each role's PIN must begin with its own digit. -->
-    <string name="hidden_guests_note" translatable="false">Each role\'s PIN begins with its own digit — the admin PIN with 0, and each guest slot with the digit shown below. Only you can set or change a guest PIN; a guest cannot.</string>
+    <string name="hidden_guests_note" translatable="false">Each role\'s PIN begins with its own digit. The admin PIN begins with 0, and each guest slot with the digit shown below. Only you can set or change a guest PIN; a guest cannot.</string>
 
-    <!-- Shown instead of the note when the admin PIN was set before role prefixes existed. Its
-         first digit cannot be checked (only its hash is stored), so guest slots stay disabled
-         until it is re-recorded with the 0 prefix. The existing PIN keeps working meanwhile. -->
-    <string name="hidden_guests_admin_legacy" translatable="false">Your admin PIN was set before role prefixes. It still works, but guest PINs stay unavailable until you change it to a PIN starting with 0 (use Change PIN above).</string>
-
-    <!-- Shown when the profile key is unusable, so names cannot be saved. Access is unaffected. -->
+    <!-- Shown when the role-name key is unusable, so names cannot be saved. Access is unaffected. -->
     <string name="hidden_guests_names_unavailable" translatable="false">Profile names can\'t be saved on this tablet, so the default labels are shown. Guest PINs still work.</string>
 
     <!-- Row status lines. %1$d is the slot\'s required first digit. -->
     <string name="hidden_guest_status_set" translatable="false">PIN set · starts with %1$d</string>
     <string name="hidden_guest_status_unset" translatable="false">No PIN · must start with %1$d</string>
-    <string name="hidden_guest_status_blocked" translatable="false">Unavailable · change the admin PIN first</string>
 
     <!-- Row actions -->
     <string name="hidden_guest_rename" translatable="false">Rename</string>

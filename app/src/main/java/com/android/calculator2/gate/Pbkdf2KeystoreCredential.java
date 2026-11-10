@@ -3,7 +3,7 @@
  *
  * Purpose: shipping credential store. Salted PBKDF2 verifiers bound to a hardware-backed Keystore
  *          HMAC key, one record per role (admin + up to four guests).
- * Modified: 2026-11-08 07:31:00 UTC
+ * Modified: 2026-11-10 06:00:00 UTC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,45 +43,37 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
 /**
- * Shipping credential (spec v0.4 §5, multi-role layout §16 as revised by the role-prefix rule).
+ * Shipping credential.
  *
  * At rest: per record, a salted PBKDF2-HMAC-SHA256 hash of the PIN, then HMAC-SHA256'd with a
  * non-exportable, HARDWARE-BACKED AndroidKeyStore key. The Keystore HMAC binds every verifier to
  * this device: a blob copied elsewhere cannot be recomputed without the on-device key, and offline
- * brute force is impossible while that key is TEE-backed. Hardware-backing is REQUIRED — if the key
+ * brute force is impossible while that key is TEE-backed. Hardware-backing is REQUIRED. If the key
  * is not inside secure hardware, save() refuses (deletes the key, fails closed) and nothing is
  * stored, so the app stays a plain calculator. There is no software-backed path.
  *
  * ROLES. One record per role: {@link #ROLE_ADMIN} plus up to {@link #MAX_GUESTS} guests. Each role's
- * PIN must begin with its own digit (admin 0, guest N with N), which is what makes it impossible for
- * one role's PIN to shadow another's: shadowing needs two roles to share the captured digit string,
- * and distinct mandatory first digits forbid that. Enforcement of the rule lives in the recorder and
- * the provisioning entry point; this class records whether it held for each saved record, in
- * {@link #FLAG_PREFIX}. A record without that flag predates the rule (a v1 blob from an older
- * build), keeps working, and is reported so the surface can require an admin re-record before guest
- * roles are allowed.
+ * PIN must begin with its own digit (admin 0, guest N with N), which makes it impossible for one
+ * role's PIN to shadow another's and lets {@link #roleFor} pick the single record to test from the
+ * plaintext first digit. {@link #save} refuses a PIN that breaks the rule, so every stored record
+ * obeys it.
  *
- * ON-DISK FORMATS. Two are read; which is written depends only on how many records exist:
+ * ON-DISK FORMAT. One format, 3 + 58N bytes for N = 1..5 records:
  *
- *   v1 (0x01, 57 bytes, single admin record) — the 0.2.x/0.3.x layout. Still WRITTEN whenever the
- *   store holds nothing but the admin record, so a single-PIN install can be rolled back to an
- *   older build without losing its credential.
- *     [0] 0x01 | [1..4] iterations BE | [5] flags | [6] salt len 0x10 | [7..22] salt
- *     | [23] verifier len 0x20 | [24..55] verifier | [56] opSeqLen
- *
- *   v2 (0x02, 3 + 58N bytes) — written as soon as a guest record exists.
- *     header: [0] 0x02 | [1] record count N (1..5) | [2] reserved 0x00
- *     record: [0] role tag | [1] profile id | [2..5] iterations BE | [6] flags
+ *     header: [0] 0x02 | [1] record count N | [2] reserved 0x00
+ *     record: [0] role tag | [1] reserved 0x00 | [2..5] iterations BE | [6] flags
  *             | [7] salt len 0x10 | [8..23] salt | [24] verifier len 0x20
  *             | [25..56] verifier | [57] opSeqLen
  *
- * A v2 blob fails an older build's version check and reads as unconfigured there, so the 0.4.0 build
- * must be installed BEFORE any guest PIN is added. Writes are atomic (tmp + fsync + rename) and any
- * corrupt, short or unknown-version file reads as unconfigured — fail safe to a plain calculator,
- * never a crash. Recovery from that state is the owner reset in spec §8.
+ * The reserved bytes are written as zero and not validated on read, so a later writer can claim
+ * them. There is deliberately no reader for the older single-record 0x01 layout: the app has not
+ * been deployed, so no such blob needs to survive, and carrying a second format would be code with
+ * nothing to do. A file in any other shape (unknown version, wrong length, duplicate or unknown
+ * role, no admin record) reads as unconfigured: fail safe to a plain calculator, never a crash.
+ * Writes are atomic (tmp + fsync + rename). Recovery from an unreadable blob is the owner reset.
  *
  * All crypto runs on a single background thread; results post to the UI thread. isConfigured() and
- * the op-length lookups are served from an in-memory copy of the store (loaded once) so the matcher
+ * the routing lookup are served from an in-memory copy of the store (loaded once) so the matcher
  * can poll them per keypress without file I/O.
  */
 public final class Pbkdf2KeystoreCredential implements GateCredential {
@@ -92,37 +84,28 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
     private static final String PBKDF2_ALG       = "PBKDF2withHmacSHA256";
     private static final String GATE_FILE        = ".gate";
 
-    /** ROLE_ADMIN and MAX_GUESTS come from the seam; a role tag is also that role's first digit. */
     private static final int MAX_RECORDS = 1 + MAX_GUESTS;
 
-    private static final byte FORMAT_V1 = 0x01;
-    private static final byte FORMAT_V2 = 0x02;
+    private static final byte FORMAT_VERSION = 0x02;
 
     private static final int SALT_LEN     = 16;
     private static final int VERIFIER_LEN = 32;   // HMAC-SHA256 output
     private static final int DERIVED_BITS = 256;  // PBKDF2 output
 
-    private static final int V1_LEN        = 1 + 4 + 1 + 1 + SALT_LEN + 1 + VERIFIER_LEN + 1;  // 57
-    private static final int V2_HEADER_LEN = 3;
-    private static final int V2_RECORD_LEN = 1 + 1 + 4 + 1 + 1 + SALT_LEN + 1 + VERIFIER_LEN + 1; // 58
+    private static final int HEADER_LEN = 3;
+    private static final int RECORD_LEN = 1 + 1 + 4 + 1 + 1 + SALT_LEN + 1 + VERIFIER_LEN + 1;  // 58
 
     /** bit0: the Keystore key was inside secure hardware when this record was written. */
     private static final byte FLAG_TEE = 0x01;
-    /**
-     * bit1: this record's PIN was checked to begin with its role digit when saved. Clear on records
-     * written before the rule existed. Older builds mask only bit0, so setting this is safe for
-     * rollback.
-     */
-    private static final byte FLAG_PREFIX = 0x02;
 
     /**
      * PBKDF2 iterations for NEW records.
      *
      * Measured on the MT8168 (Cortex-A53, pure-Java PBKDF2): 150,000 cost roughly 1 s of
-     * steady-state derivation — about 4x the ~250 ms design target. Lowered to 50,000 (addendum
+     * steady-state derivation, about 4x the ~250 ms design target. Lowered to 50,000 (addendum
      * 2026-10-12-01); re-measured at ~540-580 ms and accepted as UX-only. Sound on the design's own
      * terms: hardware-backing is REQUIRED and there is no software-backed path, so an offline attack
-     * is impossible regardless of the count — iterations are defense-in-depth, not the primary
+     * is impossible regardless of the count. Iterations are defense-in-depth, not the primary
      * defense.
      *
      * Stored per record, so existing credentials keep deriving at the count they were saved with.
@@ -148,7 +131,7 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
     /**
      * Pay the one-time cost of class loading, JCA provider initialisation, Keystore binder setup and
      * JIT warm-up on the background thread, so the first real attempt is not slower than the rest.
-     * Measured cold-vs-warm difference on the MT8168 was roughly 1 s — entirely one-time cost, not
+     * Measured cold-vs-warm difference on the MT8168 was roughly 1 s, entirely one-time cost, not
      * derivation cost.
      *
      * Called from onResume while the gate exists. Idempotent and cheap (a 1-iteration derivation).
@@ -204,16 +187,9 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
         /** Guest records currently stored, and the ceiling, for the roles row. */
         public final int guestCount;
         public final int maxGuests;
-        /**
-         * True when the admin record was saved under the role-prefix rule. False for a record from
-         * an older build: its first digit cannot be verified from a hash, so guest roles stay
-         * unavailable until the admin PIN is re-recorded.
-         */
-        public final boolean adminPrefixEnforced;
 
         Diagnostics(boolean configured, int formatVersion, int iterations, boolean blobHardwareFlag,
-                boolean keyPresent, boolean keyHardwareBacked, int guestCount, int maxGuests,
-                boolean adminPrefixEnforced) {
+                boolean keyPresent, boolean keyHardwareBacked, int guestCount, int maxGuests) {
             this.configured = configured;
             this.formatVersion = formatVersion;
             this.iterations = iterations;
@@ -222,7 +198,6 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
             this.keyHardwareBacked = keyHardwareBacked;
             this.guestCount = guestCount;
             this.maxGuests = maxGuests;
-            this.adminPrefixEnforced = adminPrefixEnforced;
         }
     }
 
@@ -249,43 +224,18 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
         }
         return new Diagnostics(
                 s != null,
-                s == null ? 0 : s.version,
+                s == null ? 0 : (FORMAT_VERSION & 0xFF),
                 admin == null ? 0 : admin.iterations,
                 admin != null && (admin.flags & FLAG_TEE) != 0,
                 present, hardware,
-                guests, MAX_GUESTS,
-                admin != null && (admin.flags & FLAG_PREFIX) != 0);
+                guests, MAX_GUESTS);
     }
-
-    // ---- role queries (used by the admin surface and, from 5b, the matcher) -------------------
 
     /** True if a credential record exists for this role. */
     boolean hasRole(int roleTag) {
         ensureLoaded();
         final Store s = mStore;
         return s != null && s.find(roleTag) != null;
-    }
-
-    /** Operator-run length stored for this role, or -1 if the role has no record. */
-    int opLenForRole(int roleTag) {
-        ensureLoaded();
-        final Store s = mStore;
-        if (s == null) return -1;
-        final Record r = s.find(roleTag);
-        return (r == null) ? -1 : r.opLen;
-    }
-
-    /**
-     * True when the admin record predates the role-prefix rule, so its first digit is unknown. The
-     * admin surface blocks guest roles in that state (an unverifiable admin digit could collide with
-     * a guest's and shadow it).
-     */
-    boolean adminPrefixUnverified() {
-        ensureLoaded();
-        final Store s = mStore;
-        if (s == null) return false;
-        final Record admin = s.find(ROLE_ADMIN);
-        return admin != null && (admin.flags & FLAG_PREFIX) == 0;
     }
 
     // ---- GateCredential ----------------------------------------------------------------------
@@ -307,15 +257,6 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
         ensureLoaded();
         final Store s = mStore;
         if (s == null || digits == null || digits.isEmpty()) return -1;
-
-        final Record admin = s.find(ROLE_ADMIN);
-        if (admin != null && (admin.flags & FLAG_PREFIX) == 0) {
-            // Pre-prefix admin record: its first digit was never checked, so it cannot be routed
-            // on. Offer it at any first digit. Guest roles are refused while this holds, so the
-            // admin record is the only candidate and nothing can be shadowed.
-            return (admin.opLen == opRunLen) ? ROLE_ADMIN : -1;
-        }
-
         final char c = digits.charAt(0);
         if (c < '0' || c > '9') return -1;
         final int role = c - '0';
@@ -343,23 +284,19 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
         });
     }
 
-    // ---- record mutation ---------------------------------------------------------------------
-
     /**
-     * Write (or replace) one role's record, then report success on the UI thread. Fails closed: on
-     * any error nothing is persisted and the previous store stands.
-     *
-     * @param roleTag   {@link #ROLE_ADMIN} or 1..{@link #MAX_GUESTS}
-     * @param profileId profile this role maps to (currently equal to the role tag)
+     * Write (or replace) one role's record, then report success on the UI thread. Fails closed: a
+     * PIN that breaks the rules is refused, and on any error nothing is persisted and the previous
+     * store stands.
      */
     @Override
-    public void save(final int roleTag, final int profileId, final String digits, final int[] opIds,
+    public void save(final int roleTag, final String digits, final int[] opIds,
             final ResultCallback cb) {
-        if (roleTag < ROLE_ADMIN || roleTag > MAX_GUESTS) {
+        final int[] ops = (opIds == null) ? new int[0] : opIds.clone();
+        if (!isAcceptable(roleTag, digits, ops.length)) {
             postResult(cb, false);
             return;
         }
-        final int[] ops = (opIds == null) ? new int[0] : opIds.clone();
         mWorker.execute(new Runnable() {
             @Override
             public void run() {
@@ -367,9 +304,15 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
                 char[] pw = null;
                 byte[] dk = null;
                 try {
+                    ensureLoaded();
+                    // A guest record without an admin record would be an unreadable store.
+                    if (roleTag != ROLE_ADMIN && (mStore == null || mStore.find(ROLE_ADMIN) == null)) {
+                        postResult(cb, false);
+                        return;
+                    }
                     ensureKey();
                     if (!isKeyHardwareBacked()) {
-                        deleteKey();              // TEE required — refuse software-backed (fail closed)
+                        deleteKey();              // TEE required: refuse software-backed (fail closed)
                         postResult(cb, false);
                         return;
                     }
@@ -378,15 +321,9 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
                     pw = password(digits, ops);
                     dk = pbkdf2(pw, salt, ITERATIONS);
                     final byte[] verifier = hmac(dk);
+                    final Record rec = new Record(roleTag, ITERATIONS, FLAG_TEE, salt, verifier,
+                            ops.length);
 
-                    byte flags = FLAG_TEE;
-                    if (hasRolePrefix(roleTag, digits)) {
-                        flags |= FLAG_PREFIX;     // record the rule as it actually held
-                    }
-                    final Record rec = new Record(roleTag, profileId, ITERATIONS, flags, salt,
-                            verifier, ops.length);
-
-                    ensureLoaded();
                     final Store next = Store.with(mStore, rec);
                     writeAtomic(serialize(next.records));
                     synchronized (mLock) {
@@ -406,12 +343,12 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
     }
 
     /**
-     * Remove one guest role's record. The admin record cannot be removed — losing it would leave an
+     * Remove one guest role's record. The admin record cannot be removed: losing it would leave an
      * install with no way back in short of the owner reset. Reports success on the UI thread; a role
      * that has no record counts as already removed.
      */
     void removeRole(final int roleTag, final ResultCallback cb) {
-        if (roleTag == ROLE_ADMIN || roleTag < ROLE_ADMIN || roleTag > MAX_GUESTS) {
+        if (roleTag <= ROLE_ADMIN || roleTag > MAX_GUESTS) {
             postResult(cb, false);
             return;
         }
@@ -447,6 +384,22 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
                 && digits.charAt(0) == (char) ('0' + roleTag);
     }
 
+    /**
+     * Everything a PIN must satisfy to be stored: a valid role, all-decimal digits of at least the
+     * minimum length beginning with the role's digit, and at least the minimum operators. The
+     * recorder and the scripted entry point check the same things first so they can explain a
+     * refusal; this is the backstop that guarantees every stored record obeys the rules.
+     */
+    static boolean isAcceptable(int roleTag, String digits, int opCount) {
+        if (roleTag < ROLE_ADMIN || roleTag > MAX_GUESTS) return false;
+        if (digits == null || digits.length() < MIN_DIGITS) return false;
+        for (int i = 0; i < digits.length(); i++) {
+            final char c = digits.charAt(i);
+            if (c < '0' || c > '9') return false;
+        }
+        return hasRolePrefix(roleTag, digits) && opCount >= MIN_OPS;
+    }
+
     // ---- verification ------------------------------------------------------------------------
 
     /** Derive and compare one record. Runs on the worker thread; any error is a non-match. */
@@ -472,8 +425,6 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
      * PBKDF2 password, ASCII only (char == byte for every char, provider-independent):
      * {@code digits + U+001F + stableOpCodes joined by ','}. Operators map to a build-stable code
      * (not R.id), so the verifier survives app updates that reassign resource ids.
-     *
-     * UNCHANGED from v1: existing credentials must keep verifying across the format change.
      */
     private static char[] password(String digits, int[] opIds) {
         final StringBuilder sb = new StringBuilder();
@@ -531,7 +482,7 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
                 .setDigests(KeyProperties.DIGEST_SHA256)
                 // No setUserAuthenticationRequired: the gate is the auth; requiring lockscreen
                 // auth would invalidate the key if the lockscreen changes (fatal for a failsafe).
-                // No StrongBox on this SoC — do not request it.
+                // No StrongBox on this SoC: do not request it.
                 .build());
         kg.generateKey();
     }
@@ -558,40 +509,19 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
 
     // ---- serialization -----------------------------------------------------------------------
 
-    /**
-     * Encode the store. A lone admin record is written in the v1 layout so a single-PIN install
-     * stays readable by an older build; anything else is v2.
-     */
     static byte[] serialize(Record[] records) {
-        if (records.length == 1 && records[0].roleTag == ROLE_ADMIN) {
-            return serializeV1(records[0]);
-        }
-        return serializeV2(records);
-    }
-
-    private static byte[] serializeV1(Record r) {
-        final ByteArrayOutputStream b = new ByteArrayOutputStream(V1_LEN);
-        b.write(FORMAT_V1);
-        writeIntBE(b, r.iterations);
-        b.write(r.flags);
-        b.write(r.salt.length & 0xFF);
-        b.write(r.salt, 0, r.salt.length);
-        b.write(r.verifier.length & 0xFF);
-        b.write(r.verifier, 0, r.verifier.length);
-        b.write(r.opLen & 0xFF);
-        return b.toByteArray();
-    }
-
-    private static byte[] serializeV2(Record[] records) {
         final ByteArrayOutputStream b =
-                new ByteArrayOutputStream(V2_HEADER_LEN + records.length * V2_RECORD_LEN);
-        b.write(FORMAT_V2);
+                new ByteArrayOutputStream(HEADER_LEN + records.length * RECORD_LEN);
+        b.write(FORMAT_VERSION);
         b.write(records.length & 0xFF);
-        b.write(0x00);                       // reserved (was the MRU hint; dropped with prefix routing)
+        b.write(0x00);                       // reserved
         for (Record r : records) {
             b.write(r.roleTag & 0xFF);
-            b.write(r.profileId & 0xFF);
-            writeIntBE(b, r.iterations);
+            b.write(0x00);                   // reserved
+            b.write((r.iterations >>> 24) & 0xFF);
+            b.write((r.iterations >>> 16) & 0xFF);
+            b.write((r.iterations >>> 8) & 0xFF);
+            b.write(r.iterations & 0xFF);
             b.write(r.flags);
             b.write(r.salt.length & 0xFF);
             b.write(r.salt, 0, r.salt.length);
@@ -602,81 +532,42 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
         return b.toByteArray();
     }
 
-    private static void writeIntBE(ByteArrayOutputStream b, int v) {
-        b.write((v >>> 24) & 0xFF);
-        b.write((v >>> 16) & 0xFF);
-        b.write((v >>> 8) & 0xFF);
-        b.write(v & 0xFF);
-    }
-
-    private static int readIntBE(byte[] d, int p) {
-        return ((d[p] & 0xFF) << 24) | ((d[p + 1] & 0xFF) << 16)
-                | ((d[p + 2] & 0xFF) << 8) | (d[p + 3] & 0xFF);
-    }
-
-    /** Parse either format; anything unexpected returns null (fail safe to unconfigured). */
+    /** Parse the blob; anything unexpected returns null (fail safe to unconfigured). */
     static Store parse(byte[] data) {
-        if (data == null || data.length < 1) return null;
+        if (data == null || data.length < HEADER_LEN) return null;
         try {
-            final int version = data[0] & 0xFF;
-            if (version == FORMAT_V1) return parseV1(data);
-            if (version == FORMAT_V2) return parseV2(data);
-            return null;
+            if (data[0] != FORMAT_VERSION) return null;
+            final int n = data[1] & 0xFF;
+            if (n < 1 || n > MAX_RECORDS) return null;
+            if (data.length != HEADER_LEN + n * RECORD_LEN) return null;
+            // data[2] and each record's byte [1] are reserved and deliberately not validated.
+            final Record[] records = new Record[n];
+            final boolean[] seen = new boolean[MAX_RECORDS];
+            int p = HEADER_LEN;
+            for (int i = 0; i < n; i++) {
+                final int roleTag = data[p++] & 0xFF;
+                p++;                                               // reserved
+                if (roleTag > MAX_GUESTS || seen[roleTag]) return null;   // unknown or duplicate
+                seen[roleTag] = true;
+                final int iters = ((data[p] & 0xFF) << 24) | ((data[p + 1] & 0xFF) << 16)
+                        | ((data[p + 2] & 0xFF) << 8) | (data[p + 3] & 0xFF);
+                p += 4;
+                final byte flags = data[p++];
+                if ((data[p++] & 0xFF) != SALT_LEN) return null;
+                final byte[] salt = Arrays.copyOfRange(data, p, p + SALT_LEN);
+                p += SALT_LEN;
+                if ((data[p++] & 0xFF) != VERIFIER_LEN) return null;
+                final byte[] verifier = Arrays.copyOfRange(data, p, p + VERIFIER_LEN);
+                p += VERIFIER_LEN;
+                final int opLen = data[p++] & 0xFF;
+                records[i] = new Record(roleTag, iters, flags, salt, verifier, opLen);
+            }
+            // A store with no admin record is unusable: fail safe rather than offer guest-only entry.
+            if (!seen[ROLE_ADMIN]) return null;
+            return new Store(records);
         } catch (Exception e) {
             return null;
         }
-    }
-
-    private static Store parseV1(byte[] data) {
-        if (data.length != V1_LEN) return null;
-        int p = 1;
-        final int iters = readIntBE(data, p);
-        p += 4;
-        final byte flags = data[p++];
-        if ((data[p++] & 0xFF) != SALT_LEN) return null;
-        final byte[] salt = Arrays.copyOfRange(data, p, p + SALT_LEN);
-        p += SALT_LEN;
-        if ((data[p++] & 0xFF) != VERIFIER_LEN) return null;
-        final byte[] verifier = Arrays.copyOfRange(data, p, p + VERIFIER_LEN);
-        p += VERIFIER_LEN;
-        final int opLen = data[p] & 0xFF;
-        final Record r = new Record(ROLE_ADMIN, ROLE_ADMIN, iters, flags, salt, verifier, opLen);
-        return new Store(1, new Record[] { r });
-    }
-
-    private static Store parseV2(byte[] data) {
-        if (data.length < V2_HEADER_LEN) return null;
-        final int n = data[1] & 0xFF;
-        if (n < 1 || n > MAX_RECORDS) return null;
-        if (data.length != V2_HEADER_LEN + n * V2_RECORD_LEN) return null;
-        // data[2] is reserved and deliberately not validated, so a future writer can use it.
-        final Record[] records = new Record[n];
-        final boolean[] seen = new boolean[MAX_RECORDS];
-        int p = V2_HEADER_LEN;
-        for (int i = 0; i < n; i++) {
-            final int roleTag = data[p++] & 0xFF;
-            final int profileId = data[p++] & 0xFF;
-            if (roleTag > MAX_GUESTS || seen[roleTag]) return null;   // unknown or duplicate role
-            seen[roleTag] = true;
-            final int iters = readIntBE(data, p);
-            p += 4;
-            final byte flags = data[p++];
-            if ((data[p++] & 0xFF) != SALT_LEN) return null;
-            final byte[] salt = Arrays.copyOfRange(data, p, p + SALT_LEN);
-            p += SALT_LEN;
-            if ((data[p++] & 0xFF) != VERIFIER_LEN) return null;
-            final byte[] verifier = Arrays.copyOfRange(data, p, p + VERIFIER_LEN);
-            p += VERIFIER_LEN;
-            final int opLen = data[p++] & 0xFF;
-            records[i] = new Record(roleTag, profileId, iters, flags, salt, verifier, opLen);
-        }
-        // A store with no admin record is unusable: fail safe rather than offer guest-only entry.
-        boolean hasAdmin = false;
-        for (Record r : records) {
-            if (r.roleTag == ROLE_ADMIN) hasAdmin = true;
-        }
-        if (!hasAdmin) return null;
-        return new Store(2, records);
     }
 
     // ---- file I/O ----------------------------------------------------------------------------
@@ -723,7 +614,7 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
     private static byte[] readAll(File f) throws IOException {
         final FileInputStream in = new FileInputStream(f);
         try {
-            final ByteArrayOutputStream out = new ByteArrayOutputStream(V1_LEN);
+            final ByteArrayOutputStream out = new ByteArrayOutputStream(HEADER_LEN + RECORD_LEN);
             final byte[] buf = new byte[64];
             int n;
             while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
@@ -744,17 +635,14 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
     /** One role's credential. Immutable; the arrays are never handed outside this class. */
     static final class Record {
         final int roleTag;
-        final int profileId;
         final int iterations;
         final byte flags;
         final byte[] salt;
         final byte[] verifier;
         final int opLen;
 
-        Record(int roleTag, int profileId, int iterations, byte flags, byte[] salt, byte[] verifier,
-                int opLen) {
+        Record(int roleTag, int iterations, byte flags, byte[] salt, byte[] verifier, int opLen) {
             this.roleTag = roleTag;
-            this.profileId = profileId;
             this.iterations = iterations;
             this.flags = flags;
             this.salt = salt;
@@ -763,13 +651,11 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
         }
     }
 
-    /** The parsed store: the format version it was read from, plus its records in on-disk order. */
+    /** The parsed store: its records, admin first then guests in ascending role order. */
     static final class Store {
-        final int version;
         final Record[] records;
 
-        Store(int version, Record[] records) {
-            this.version = version;
+        Store(Record[] records) {
             this.records = records;
         }
 
@@ -780,10 +666,7 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
             return null;
         }
 
-        /**
-         * Copy of {@code base} with {@code rec} added, or replacing the record of the same role.
-         * Admin first, then guests in ascending role order, so the on-disk order is deterministic.
-         */
+        /** Copy of {@code base} with {@code rec} added, or replacing the record of the same role. */
         static Store with(Store base, Record rec) {
             final ArrayList<Record> out = new ArrayList<>(MAX_RECORDS);
             if (base != null) {
@@ -804,6 +687,7 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
             return ordered(out);
         }
 
+        /** Deterministic on-disk order: admin, then guests ascending. */
         private static Store ordered(ArrayList<Record> list) {
             final Record[] arr = new Record[list.size()];
             int k = 0;
@@ -812,9 +696,7 @@ public final class Pbkdf2KeystoreCredential implements GateCredential {
                     if (r.roleTag == role) arr[k++] = r;
                 }
             }
-            // version reflects what serialize() will emit for this shape
-            final int version = (arr.length == 1 && arr[0].roleTag == ROLE_ADMIN) ? 1 : 2;
-            return new Store(version, arr);
+            return new Store(arr);
         }
     }
 }

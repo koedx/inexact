@@ -1,10 +1,10 @@
 /*
  * Copyright (C) 2026 The Android Open Source Project / InExact fork
  *
- * Purpose: in-memory, process-lifetime gate session state (spec addendum 2026-11-06-01 §3.1),
- *          now carrying the role the session was opened for.
+ * Purpose: in-memory, process-lifetime gate session state, carrying the role the session was
+ *          opened for and notifying whoever needs to react when it ends.
  * Created:  2026-10-14 (origin: HiddenActivity one-shot-token model)
- * Modified: 2026-11-08 07:31:00 UTC
+ * Modified: 2026-11-10 06:00:00 UTC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,19 +15,26 @@
 
 package com.android.calculator2.gate;
 
+import java.util.concurrent.CopyOnWriteArrayList;
+
 /**
  * In-memory, process-lifetime gate state.
  *
- * The session PERSISTS until the task is dismissed or the process dies — the launcher must survive
- * tapping out to a launched app and returning (spec addendum 2026-11-06-01 §3.1). The old one-shot
- * unlock token (2026-10-14-01 §3.4), which re-locked on any recreation, is replaced by a persistent
- * flag. Nothing here is ever persisted or placed in a saved-instance bundle, so process death
- * re-locks — the accepted fail-safe on this low-RAM device. A recents-swipe kills the process on this
- * hardware, so it re-locks the same way.
+ * A session is a LOGIN: the user stays signed in while using the tablet, because the unlocked
+ * surface is the primary route to the kiosk's functions. It ends only when the user locks it, from
+ * the in-app lock action or from the session notification ({@link SessionService}). There is no
+ * automatic timeout. While a session is open, {@link SessionService} runs as a foreground service,
+ * which keeps this process (and so this state) alive when the task is swiped away.
  *
- * Holds only: the active-session flag, the role and profile the session was opened for, a one-shot
- * re-record request, and a reference to the shared credential (which holds the application Context,
- * never an Activity).
+ * Nothing here is ever persisted or placed in a saved-instance bundle, so if the process does die
+ * (the system can still kill a foreground service under pressure) the session is simply gone and
+ * the gate is locked: the fail-safe direction.
+ *
+ * Holds only: the active-session flag, the role the session was opened for, one-shot requests from
+ * the admin surface to the calculator pad, and a reference to the shared credential (which holds
+ * the application Context, never an Activity).
+ *
+ * Threading: begin/end and the listener calls happen on the main thread.
  */
 public final class GateSession {
 
@@ -36,10 +43,12 @@ public final class GateSession {
 
     private static volatile boolean sSessionActive;
     private static volatile int sRoleTag = NO_ROLE;
-    private static volatile int sProfileId = NO_ROLE;
     private static volatile boolean sRerecordRequested;
     private static volatile int sGuestRecordRole = NO_ROLE;
     private static volatile Pbkdf2KeystoreCredential sCredential;
+
+    /** Run when the session ends, so the surface closes and the notification goes away together. */
+    private static final CopyOnWriteArrayList<Runnable> sEndListeners = new CopyOnWriteArrayList<>();
 
     private GateSession() {}
 
@@ -47,17 +56,34 @@ public final class GateSession {
      * Called by the host when the gate matched. Opens the session for one role; the role is what
      * decides whether the admin surface is reachable, so a guest session can never reach it.
      */
-    public static void begin(int roleTag, int profileId) {
+    public static void begin(int roleTag) {
         sRoleTag = roleTag;
-        sProfileId = profileId;
         sSessionActive = true;
     }
 
-    /** Explicit lock (lock action, Change PIN) and the process-death fail-safe both land here. */
+    /**
+     * End the session. Every lock path lands here (the in-app lock action, the notification's Lock
+     * action, Change PIN), and the registered listeners then close the surface and stop the session
+     * service, so no path can end the session and leave one of them behind.
+     */
     public static void end() {
+        final boolean wasActive = sSessionActive;
         sSessionActive = false;
         sRoleTag = NO_ROLE;
-        sProfileId = NO_ROLE;
+        sGuestRecordRole = NO_ROLE;
+        if (wasActive) {
+            for (Runnable r : sEndListeners) {
+                r.run();
+            }
+        }
+    }
+
+    static void addEndListener(Runnable listener) {
+        sEndListeners.addIfAbsent(listener);
+    }
+
+    static void removeEndListener(Runnable listener) {
+        sEndListeners.remove(listener);
     }
 
     /** The launcher finishes immediately if this is false (stray/restored launch, or locked). */
@@ -76,11 +102,6 @@ public final class GateSession {
     /** The role this session was opened for, or {@link #NO_ROLE}. */
     static int roleTag() {
         return sSessionActive ? sRoleTag : NO_ROLE;
-    }
-
-    /** The profile this session's role maps to, or {@link #NO_ROLE}. */
-    static int profileId() {
-        return sSessionActive ? sProfileId : NO_ROLE;
     }
 
     /** Admin surface -> Calculator: enter PIN-setup mode once (already authenticated). */

@@ -34,13 +34,13 @@ public interface GateHost {
 
     /**
      * The gate matched for one role. The host clears the display, then begins the session for that
-     * role and launches the launcher. Must not log — a log line on the match path is a leak.
+     * role, starts the session service and launches the launcher. Must not log: a log line on the
+     * match path is a leak.
      *
-     * @param roleTag   the matched role ({@link GateCredential#ROLE_ADMIN} or a guest slot), which
-     *                  decides whether the admin surface is reachable
-     * @param profileId the profile that role maps to
+     * @param roleTag the matched role ({@link GateCredential#ROLE_ADMIN} or a guest slot), which
+     *                decides whether the admin surface is reachable
      */
-    void openGate(int roleTag, int profileId);
+    void openGate(int roleTag);
 
     /**
      * Section 6 recording: show text (operator glyphs, or "Repeat"/"Saved"/error) in the result

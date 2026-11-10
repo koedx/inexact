@@ -1,11 +1,10 @@
 /*
  * Copyright (C) 2026 The Android Open Source Project / InExact fork
  *
- * Purpose: the unlocked surface — a single activity with a footer nav bar (Apps + Admin) and a
- *          persistent lock action. Replaces HiddenActivity as the gate's landing point
- *          (spec addendum 2026-11-06-01 §3.1, §3.2).
+ * Purpose: the unlocked surface: a single activity with a footer nav bar (Apps, Settings, Admin)
+ *          and a persistent lock action. The gate's landing point.
  * Created:  2026-11-06 09:44:19 UTC
- * Modified: 2026-11-06 09:44:19 UTC
+ * Modified: 2026-11-10 06:00:00 UTC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +16,6 @@
 package com.android.calculator2.gate;
 
 import android.os.Bundle;
-import android.view.Menu;
-import android.view.View;
 import android.view.WindowManager;
 
 import androidx.annotation.NonNull;
@@ -31,16 +28,29 @@ import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 /**
  * Reached only through the gate: non-exported, no intent-filter, and onCreate finishes at once unless
- * {@link GateSession#isActive()} (set by the host's openGate()). Lands on the app picker; the admin
- * dashboard is a second nav destination, shown only to an admin session.
+ * {@link GateSession#isActive()}. Lands on the app picker; Settings and Admin are further nav
+ * destinations, shown only to an admin session for now (per-role delegation of settings arrives
+ * with overlays).
  *
- * Leak hygiene (unchanged from HiddenActivity): FLAG_SECURE (no screenshots, blank recents card),
- * nothing restored from a saved-instance bundle. The session persists across backgrounding and
- * rotation (configChanges in the manifest); it ends on the lock action or process death.
+ * The session is a login and outlives this activity: backing out, or swiping the task away, leaves
+ * it open, and {@link SessionService}'s notification leads back here. It ends only when the user
+ * locks it, here or from that notification. Either way {@link GateSession#end()} runs the listener
+ * registered below, so this activity closes whenever the session does.
+ *
+ * Leak hygiene: FLAG_SECURE (no screenshots, blank recents card), nothing restored from a
+ * saved-instance bundle.
  */
 public class LauncherActivity extends AppCompatActivity {
 
     private boolean mAdmin;
+    private int mRole = GateSession.NO_ROLE;
+    private boolean mListening;
+
+    private final Runnable mOnSessionEnded = new Runnable() {
+        @Override public void run() {
+            finish();
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -49,6 +59,11 @@ public class LauncherActivity extends AppCompatActivity {
             finish();
             return;
         }
+        GateSession.addEndListener(mOnSessionEnded);
+        mListening = true;
+        SessionService.start(this);   // idempotent; covers the service having been stopped
+
+        mRole = GateSession.roleTag();
         mAdmin = GateSession.isAdmin();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         setContentView(R.layout.activity_launcher);
@@ -57,13 +72,14 @@ public class LauncherActivity extends AppCompatActivity {
         toolbar.inflateMenu(R.menu.launcher_menu);
         toolbar.setOnMenuItemClickListener(item -> {
             if (item.getItemId() == R.id.action_lock) {
-                lockAndExit();
+                GateSession.end();   // the end listener finishes this activity
                 return true;
             }
             return false;
         });
 
         final BottomNavigationView nav = findViewById(R.id.launcher_nav);
+        nav.getMenu().findItem(R.id.nav_settings).setVisible(mAdmin);
         nav.getMenu().findItem(R.id.nav_admin).setVisible(mAdmin);   // guests never see Admin
         nav.setOnItemSelectedListener(item -> {
             showDestination(item.getItemId());
@@ -75,12 +91,34 @@ public class LauncherActivity extends AppCompatActivity {
         }
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // This instance was built for one role's session. If that session is gone, or a different
+        // role has signed in since, close instead of showing one role's surface to another.
+        if (!GateSession.isActive() || GateSession.roleTag() != mRole) {
+            finish();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (mListening) {
+            GateSession.removeEndListener(mOnSessionEnded);
+            mListening = false;
+        }
+        super.onDestroy();
+    }
+
     private void showDestination(int itemId) {
         final Fragment f;
         final CharSequence title;
         if (itemId == R.id.nav_admin && mAdmin) {
             f = new AdminFragment();
             title = getString(R.string.launcher_nav_admin);
+        } else if (itemId == R.id.nav_settings && mAdmin) {
+            f = new SettingsFragment();
+            title = getString(R.string.launcher_nav_settings);
         } else {
             f = new AppsFragment();
             title = getString(R.string.launcher_title);
@@ -89,12 +127,6 @@ public class LauncherActivity extends AppCompatActivity {
         getSupportFragmentManager().beginTransaction()
                 .replace(R.id.launcher_container, f)
                 .commit();
-    }
-
-    /** The persistent lock action: end the session and drop back to the plain calculator. */
-    private void lockAndExit() {
-        GateSession.end();
-        finish();
     }
 
     @Override

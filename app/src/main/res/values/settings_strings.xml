@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Settings catalog and drift view, plus the session notification. translatable="false" (admin
+  tool); the project name never appears. No dashes as punctuation anywhere near values: these rows
+  show raw numbers, and a dash beside a number reads as a minus sign.
+  Created:  2026-11-10 06:00:00 UTC
+  Modified: 2026-11-10 06:00:00 UTC
+-->
+<resources>
+    <!-- Navigation -->
+    <string name="launcher_nav_settings" translatable="false">Settings</string>
+
+    <!-- Session notification. Deliberately plain: it exists only while signed in. -->
+    <string name="session_channel_name" translatable="false">Status</string>
+    <string name="session_notification_title" translatable="false">Signed in</string>
+    <string name="session_notification_text" translatable="false">Tap to return. Lock to sign out.</string>
+
+    <!-- Summary card -->
+    <string name="settings_summary_all_stock" translatable="false">All %1$d settings match stock</string>
+    <string name="settings_summary_differ" translatable="false">%1$d of %2$d settings need a look</string>
+    <string name="settings_summary_counts" translatable="false">Not stock: %1$d. Invalid: %2$d. Not set: %3$d.</string>
+    <string name="settings_read_only_note" translatable="false">This view only reads. Nothing here changes a setting yet.</string>
+
+    <!-- Row value lines. %1$s is a raw setting value. -->
+    <string name="settings_current_fmt" translatable="false">Current: %1$s</string>
+    <string name="settings_current_unset" translatable="false">Current: not set</string>
+    <string name="settings_current_empty" translatable="false">Current: (empty)</string>
+    <string name="settings_current_unreadable" translatable="false">Current: could not be read</string>
+    <string name="settings_stock_fmt" translatable="false">Stock: %1$s</string>
+    <string name="settings_missing_fmt" translatable="false">Missing: %1$s</string>
+    <string name="settings_expected_format" translatable="false">Expected format: 12345678: SMITH, JOHN</string>
+
+    <!-- Badges. Text carries the meaning; colour only reinforces it. -->
+    <string name="settings_badge_drift" translatable="false">Not stock</string>
+    <string name="settings_badge_invalid" translatable="false">Invalid</string>
+    <string name="settings_badge_unset" translatable="false">Not set</string>
+    <string name="settings_badge_unreadable" translatable="false">Unreadable</string>
+
+    <!-- Sections -->
+    <string name="settings_section_status_bar" translatable="false">Status bar</string>
+    <string name="settings_section_quick_settings" translatable="false">Quick settings</string>
+    <string name="settings_section_power_button" translatable="false">Power button</string>
+    <string name="settings_section_display" translatable="false">Display</string>
+    <string name="settings_section_lock_screen" translatable="false">Lock screen</string>
+    <string name="settings_section_printing" translatable="false">Printing</string>
+    <string name="settings_section_network" translatable="false">Network</string>
+
+    <!-- Entries -->
+    <string name="settings_off_on_summary" translatable="false">0 is off, 1 is on.</string>
+
+    <string name="settings_icon_blacklist_title" translatable="false">Hidden status bar icons</string>
+    <string name="settings_icon_blacklist_summary" translatable="false">Stock hides at least: airplane, bluetooth, cast, rotate, vpn, wifi. Extra entries are fine.</string>
+
+    <string name="settings_battery_percent_title" translatable="false">Battery percentage in status bar</string>
+
+    <string name="settings_qs_tiles_title" translatable="false">Quick settings tiles</string>
+    <string name="settings_qs_tiles_summary" translatable="false">The exact tile list, in order.</string>
+
+    <string name="settings_power_double_title" translatable="false">Power button double press</string>
+    <string name="settings_power_double_summary" translatable="false">0 does nothing.</string>
+    <string name="settings_power_long_title" translatable="false">Power button long press</string>
+    <string name="settings_power_very_long_title" translatable="false">Power button very long press</string>
+    <string name="settings_power_menu_summary" translatable="false">0 does nothing, 1 opens the power menu.</string>
+
+    <string name="settings_night_mode_title" translatable="false">Dark theme</string>
+    <string name="settings_night_mode_summary" translatable="false">1 is light, 2 is dark, 0 is automatic.</string>
+
+    <string name="settings_show_touches_title" translatable="false">Show taps</string>
+
+    <string name="settings_owner_info_title" translatable="false">Lock screen message</string>
+    <string name="settings_owner_info_summary" translatable="false">An 8 digit ID, a colon, then LAST, FIRST in capitals.</string>
+
+    <string name="settings_private_notifications_title" translatable="false">Sensitive notifications on lock screen</string>
+    <string name="settings_private_notifications_summary" translatable="false">0 hides their content, 1 shows it.</string>
+
+    <string name="settings_print_services_title" translatable="false">Disabled print services</string>
+    <string name="settings_print_services_summary" translatable="false">Stock keeps the built in print service disabled.</string>
+
+    <string name="settings_airplane_title" translatable="false">Airplane mode</string>
+</resources>

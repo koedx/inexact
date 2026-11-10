@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Rounded pill behind a settings badge. White here; each badge tints it from the theme.
+  Created:  2026-11-10 06:00:00 UTC
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@android:color/white" />
+    <corners android:radius="8dp" />
+</shape>

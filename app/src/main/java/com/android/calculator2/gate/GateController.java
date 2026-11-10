@@ -3,7 +3,7 @@
  *
  * Purpose: owns the gate for one Activity instance; routes presses to the recorder or the matcher
  *          and drives the PIN-setup appearance. Role-aware as of blob v2.
- * Modified: 2026-11-08 07:31:00 UTC
+ * Modified: 2026-11-10 06:00:00 UTC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -121,7 +121,7 @@ public final class GateController implements PinRecorder.Listener {
             mSetupPrompted = true;
             mHost.showGateDialog(R.string.gate_prompt_title,
                     mHost.context().getString(R.string.gate_prompt_digits_role,
-                            target, PinRecorder.MIN_DIGITS),
+                            target, GateCredential.MIN_DIGITS),
                     R.string.gate_got_it);
         }
     }
@@ -218,7 +218,7 @@ public final class GateController implements PinRecorder.Listener {
         if (wasGuest) {
             // The admin session is still open, so hand straight back to the admin surface rather
             // than leaving the admin looking at a calculator.
-            mHost.openGate(GateCredential.ROLE_ADMIN, GateCredential.ROLE_ADMIN);
+            mHost.openGate(GateCredential.ROLE_ADMIN);
         }
     }
 

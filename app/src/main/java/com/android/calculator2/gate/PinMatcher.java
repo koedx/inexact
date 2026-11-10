@@ -2,7 +2,7 @@
  * Copyright (C) 2026 The Android Open Source Project / InExact fork
  *
  * Purpose: passive detection of a credential entry on the calculator pad (spec v0.4 §5).
- * Modified: 2026-11-08 07:31:00 UTC
+ * Modified: 2026-11-10 06:00:00 UTC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ import java.util.ArrayList;
 
 /**
  * Passive observer of raw key presses that detects a credential: a whole-number display of at least
- * {@link #MIN_DIGITS} digits at the first operator, then a run of operators whose length equals the
+ * {@link GateCredential#MIN_DIGITS} digits at the first operator, then a run of operators whose length equals the
  * length stored for the role that the display's first digit identifies.
  *
  * Observe-only. Every press returns to the normal calculator path, so a wrong attempt is
@@ -36,18 +36,6 @@ import java.util.ArrayList;
  * re-fire. Ordinary arithmetic whose first digit matches no role costs no derivation at all.
  */
 final class PinMatcher {
-
-    /**
-     * Minimum display digits before an operator run can be a PIN attempt.
-     *
-     * This is the MATCHING floor, and it must never exceed the smallest digit count any stored
-     * credential could have — raising it would make an existing shorter PIN unmatchable, i.e. lock
-     * the owner out. It therefore stays at the original 3 even though new PINs are now required to
-     * be longer; that higher minimum is enforced by the recorder, at the point where the plaintext
-     * is in hand. Keeping this low is cheap: role routing, not this guard, is what stops ordinary
-     * arithmetic from costing derivations.
-     */
-    private static final int MIN_DIGITS = 3;
 
     private final GateHost mHost;
     private final GateCredential mCredential;
@@ -73,7 +61,7 @@ final class PinMatcher {
         if (KeyMaps.isBinary(id)) {
             if (!mInSequence) {
                 final String digits = mHost.evaluator().getMainWholeDigitsOrNull();
-                if (digits == null || digits.length() < MIN_DIGITS) {
+                if (digits == null || digits.length() < GateCredential.MIN_DIGITS) {
                     reset();      // not a whole number, or too short -> not a PIN attempt
                     return;
                 }
@@ -111,9 +99,7 @@ final class PinMatcher {
                 // was dispatched.
                 if (match && generation == mGeneration) {
                     reset();
-                    // Profile ids currently equal role tags; when profiles diverge from roles the
-                    // record's stored profileId becomes the authoritative value to pass here.
-                    mHost.openGate(role, role);
+                    mHost.openGate(role);
                 }
             }
         });

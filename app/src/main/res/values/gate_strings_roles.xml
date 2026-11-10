@@ -7,11 +7,13 @@
   Modified: 2026-11-08 07:31:00 UTC
 -->
 <resources>
-    <!-- Opening instruction. %1$d is the role's required first digit, %2$d the digit minimum. -->
-    <string name="gate_prompt_digits_role" translatable="false">Enter this PIN starting with the digit %1$d, using at least %2$d whole digits 0–9 only — no decimal point, operators, or functions. Then press and hold =. You will enter the whole PIN again afterwards to confirm it.</string>
+    <!-- Opening instruction. %1$d is the role's required first digit, %2$d the digit minimum.
+         No dashes as punctuation here: an em or en dash is too easily read as the minus operator
+         in a message that is itself about digits and operators. -->
+    <string name="gate_prompt_digits_role" translatable="false">Enter this PIN starting with the digit %1$d, using at least %2$d whole digits, 0 to 9 only. No decimal point, operators, or functions. Then press and hold =. You will enter the whole PIN again afterwards to confirm it.</string>
 
     <!-- Too few digits. %1$d is the minimum, %2$d the required first digit. -->
-    <string name="gate_err_min_digits_role" translatable="false">This PIN needs at least %1$d digits. Enter %1$d or more whole digits (0–9) starting with %2$d, then press and hold =.</string>
+    <string name="gate_err_min_digits_role" translatable="false">This PIN needs at least %1$d digits. Enter %1$d or more whole digits, 0 to 9, starting with %2$d, then press and hold =.</string>
 
     <!-- Wrong leading digit. %1$d is the required first digit. Each role's PIN begins with its own
          digit, which is what keeps one role's PIN from masking another's. -->

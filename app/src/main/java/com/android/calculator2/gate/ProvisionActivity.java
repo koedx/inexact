@@ -50,9 +50,9 @@ public class ProvisionActivity extends Activity {
     private static final String EXTRA_DIGITS = "cfg_a";
     private static final String EXTRA_OPS    = "cfg_b";
 
-    /** Taken from the recorder so the scripted and on-pad paths can never disagree. */
-    private static final int MIN_DIGITS = PinRecorder.MIN_DIGITS;
-    private static final int MIN_OPS    = 3;
+    /** Taken from the seam so the scripted and on-pad paths can never disagree. */
+    private static final int MIN_DIGITS = GateCredential.MIN_DIGITS;
+    private static final int MIN_OPS    = GateCredential.MIN_OPS;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,7 +89,7 @@ public class ProvisionActivity extends Activity {
 
         // Save asynchronously; the activity stays alive until the callback (it has no UI of its own).
         final GateCredential credential = new Pbkdf2KeystoreCredential(getApplicationContext());
-        credential.save(GateCredential.ROLE_ADMIN, GateCredential.ROLE_ADMIN, digits, opIds,
+        credential.save(GateCredential.ROLE_ADMIN, digits, opIds,
                 new GateCredential.ResultCallback() {
             @Override
             public void onResult(boolean ok) {

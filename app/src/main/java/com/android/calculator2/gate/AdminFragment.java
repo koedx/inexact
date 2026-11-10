@@ -4,7 +4,7 @@
  * Purpose: admin dashboard destination — adb/developer toggles, Developer options shortcut, version,
  *          Keystore diagnostic, Change PIN, and guest-slot management (blob v2 roles).
  * Created:  2026-11-06 09:44:19 UTC
- * Modified: 2026-11-08 07:31:00 UTC
+ * Modified: 2026-11-10 06:00:00 UTC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -51,11 +51,7 @@ import java.util.Map;
  * PIN; nothing here lets a guest do so, and the scripted provisioning path refuses guest roles
  * outright.
  *
- * Guest slots are disabled entirely while the admin record predates the role-prefix rule: its first
- * digit cannot be read back from a hash, so it might collide with a guest's and mask it. Re-recording
- * the admin PIN with its 0 prefix clears that state.
- *
- * Everything here that touches the Keystore, the blob or the profile file is blocking, so state is
+ * Everything here that touches the Keystore, the blob or the role-name file is blocking, so state is
  * loaded on a background thread and bound on the UI thread.
  */
 public class AdminFragment extends Fragment {
@@ -83,10 +79,10 @@ public class AdminFragment extends Fragment {
     private final MaterialButton[] mGuestReset = new MaterialButton[SLOTS];
     private TextView mGuestsNote;
 
-    private ProfileStore mProfiles;
+    private RoleStore mRoles;
     private State mState;
 
-    /** One background load: credential diagnostics, per-slot record presence, and profile names. */
+    /** One background load: credential diagnostics, per-slot record presence, and role names. */
     private static final class State {
         final Pbkdf2KeystoreCredential.Diagnostics diag;
         final boolean namesAvailable;
@@ -100,11 +96,6 @@ public class AdminFragment extends Fragment {
             this.names = names;
             this.hasRecord = hasRecord;
         }
-
-        /** True while the admin record cannot be routed on, which blocks every guest slot. */
-        boolean guestsBlocked() {
-            return diag.configured && !diag.adminPrefixEnforced;
-        }
     }
 
     @Nullable @Override
@@ -115,7 +106,7 @@ public class AdminFragment extends Fragment {
 
     @Override
     public void onViewCreated(@NonNull View root, @Nullable Bundle savedInstanceState) {
-        mProfiles = new ProfileStore(requireContext());
+        mRoles = new RoleStore(requireContext());
         mStatus = root.findViewById(R.id.hidden_status);
 
         // Debugging card.
@@ -341,7 +332,7 @@ public class AdminFragment extends Fragment {
     }
 
     private void saveName(final int role, final String name) {
-        final ProfileStore store = mProfiles;
+        final RoleStore store = mRoles;
         new Thread(() -> {
             final boolean ok = store.setName(role, name);
             if (!isAdded()) return;
@@ -359,7 +350,7 @@ public class AdminFragment extends Fragment {
     private void reload() {
         final Pbkdf2KeystoreCredential credential = GateSession.credential();
         if (credential == null) return;
-        final ProfileStore store = mProfiles;
+        final RoleStore store = mRoles;
         mKeyValue.setText(R.string.hidden_key_checking);
         new Thread(() -> {
             final Pbkdf2KeystoreCredential.Diagnostics d = credential.diagnose();
@@ -399,7 +390,6 @@ public class AdminFragment extends Fragment {
 
     private void bindGuests() {
         final State st = mState;
-        final boolean blocked = st != null && st.guestsBlocked();
         final boolean namesOk = st == null || st.namesAvailable;
         final Map<Integer, String> names =
                 (st == null) ? Collections.<Integer, String>emptyMap() : st.names;
@@ -408,24 +398,21 @@ public class AdminFragment extends Fragment {
         for (int role = 1; role <= GateCredential.MAX_GUESTS; role++) {
             final String stored = names.get(role);
             mGuestName[role].setText((stored == null || stored.isEmpty())
-                    ? ProfileStore.defaultName(role) : stored);
+                    ? RoleStore.defaultName(role) : stored);
 
             final boolean has = st != null && st.hasRecord[role];
             mGuestSwitch[role].setChecked(has);
-            mGuestSwitch[role].setEnabled(!blocked);
             mGuestRename[role].setEnabled(namesOk);
             // Reset only makes sense once a PIN exists; otherwise the switch is how you add one.
-            mGuestReset[role].setEnabled(!blocked && has);
+            mGuestReset[role].setEnabled(has);
 
-            mGuestStatus[role].setText(blocked
-                    ? getString(R.string.hidden_guest_status_blocked)
-                    : has ? getString(R.string.hidden_guest_status_set, role)
-                          : getString(R.string.hidden_guest_status_unset, role));
+            mGuestStatus[role].setText(has
+                    ? getString(R.string.hidden_guest_status_set, role)
+                    : getString(R.string.hidden_guest_status_unset, role));
         }
         mSyncing = false;
 
-        mGuestsNote.setText(blocked ? getString(R.string.hidden_guests_admin_legacy)
-                : !namesOk ? getString(R.string.hidden_guests_names_unavailable)
-                           : getString(R.string.hidden_guests_note));
+        mGuestsNote.setText(namesOk ? getString(R.string.hidden_guests_note)
+                                    : getString(R.string.hidden_guests_names_unavailable));
     }
 }
